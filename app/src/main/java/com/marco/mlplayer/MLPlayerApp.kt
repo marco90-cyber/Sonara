@@ -37,6 +37,7 @@ class MLPlayerApp : Application() {
         AppLog.verbose = settings.verboseLog
         library = Library(this)
         ytStore = com.marco.mlplayer.yt.YtStore(this)
+        com.marco.mlplayer.yt.YtAuth.init(this)
         feedback = Feedback(this, settings)
         engine = AudioEngine(this, settings, library)
         engine.connectService()
