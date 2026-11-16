@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -280,20 +281,6 @@ private fun CollectionView(
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro") }
-                Spacer(Modifier.weight(1f))
-                if (bookmark != null) {
-                    val saved = env.app.ytStore.isSaved(bookmark.browseId)
-                    IconButton(onClick = {
-                        val now = env.app.ytStore.toggleSaved(bookmark)
-                        env.message = if (now) "Salvato nella libreria" else "Tolto dalla libreria"
-                    }) {
-                        Icon(
-                            if (saved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                            contentDescription = if (saved) "Togli dalla libreria" else "Salva nella libreria",
-                            tint = if (saved) cs.primary else cs.onSurface,
-                        )
-                    }
-                }
             }
         }
         item {
@@ -317,6 +304,19 @@ private fun CollectionView(
                     FilledTonalButton(onClick = { env.engine.playQueue(tracks.map { Yt.toTrack(it) }.shuffled(), 0); env.openNowPlaying() }) {
                         Icon(Icons.Filled.Shuffle, null); Spacer(Modifier.width(6.dp)); Text("Casuale")
                     }
+                if (bookmark != null) {
+                    val saved = env.app.ytStore.isSaved(bookmark.browseId)
+                    FilledTonalIconButton(onClick = {
+                        val now = env.app.ytStore.toggleSaved(bookmark)
+                        env.message = if (now) "Salvato nella libreria" else "Tolto dalla libreria"
+                    }) {
+                        Icon(
+                            if (saved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                            contentDescription = if (saved) "Togli dalla libreria" else "Salva nella libreria",
+                            tint = if (saved) cs.primary else cs.onSurface,
+                        )
+                    }
+                }
                 }
             }
         }
