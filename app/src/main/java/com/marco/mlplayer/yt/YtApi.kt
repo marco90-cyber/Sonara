@@ -82,6 +82,28 @@ object YtApi {
         return out
     }
 
+    /** Contenuto di una pagina aperta: i brani e, per un artista, gli scaffali di album, singoli, ecc. */
+    data class Detail(val tracks: List<Yt.Item>, val shelves: List<Shelf>)
+
+    /** Pagina di un artista: tutti i suoi brani ("mostra tutto") e gli scaffali di album e singoli. */
+    fun artist(channelId: String): Detail {
+        val json = browse(channelId)
+        val shelf = collect(json, "musicShelfRenderer").firstOrNull()
+        var songs: List<Yt.Item> = shelf?.let { sh -> collect(sh, "musicResponsiveListItemRenderer").mapNotNull { parseTrack(it) } }.orEmpty()
+        val moreId = shelf?.let { sh ->
+            collect(sh, "bottomEndpoint").firstOrNull()?.optJSONObject("browseEndpoint")?.optString("browseId")
+                ?: collect(sh, "title").firstOrNull()?.optJSONArray("runs")?.optJSONObject(0)
+                    ?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")
+        }?.takeIf { it.isNotBlank() }
+        if (moreId != null) {
+            runCatching { playlistTracks(moreId) }.onSuccess { if (it.size > songs.size) songs = it }
+                .onFailure { AppLog.w(TAG, "Elenco completo dei brani non riuscito: ${it.message}") }
+        }
+        val shelves = collect(json, "musicCarouselShelfRenderer").mapNotNull { parseShelf(it) }
+        AppLog.i(TAG, "Artista $channelId: ${songs.size} brani, ${shelves.size} scaffali")
+        return Detail(songs, shelves)
+    }
+
     // ------------------------------------------------------------------ home e radio
 
     /** Una scheda della home: un brano da suonare oppure un album/playlist/artista da aprire. */

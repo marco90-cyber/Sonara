@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -161,7 +162,7 @@ private fun AccountSection(env: AppEnv) {
 
     val open = LibUi.open
     if (open != null) {
-        CollectionState(env, open.title, open.subtitle, open.thumb, LibUi.openTracks, LibUi.openError) { LibUi.open = null; LibUi.openTracks = null }
+        CollectionState(env, open.title, open.subtitle, open.thumb, LibUi.openTracks, LibUi.openError, onBack = { LibUi.open = null; LibUi.openTracks = null })
         return
     }
 
@@ -216,6 +217,9 @@ internal fun CollectionState(
     tracks: List<Yt.Item>?,
     error: String?,
     onBack: () -> Unit,
+    shelves: List<YtApi.Shelf> = emptyList(),
+    onOpen: (Yt.Entry) -> Unit = {},
+    circle: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     when {
@@ -227,11 +231,11 @@ internal fun CollectionState(
             BackRow(title, onBack)
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
-        tracks.isEmpty() -> Column(Modifier.fillMaxSize()) {
+        tracks.isEmpty() && shelves.isEmpty() -> Column(Modifier.fillMaxSize()) {
             BackRow(title, onBack)
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nessun brano", color = cs.onSurfaceVariant) }
         }
-        else -> CollectionView(env, title, subtitle, thumb, tracks, onBack)
+        else -> CollectionView(env, title, subtitle, thumb, tracks, onBack, shelves, onOpen, circle)
     }
 }
 
@@ -244,7 +248,10 @@ private fun BackRow(title: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun CollectionView(env: AppEnv, title: String, subtitle: String, thumb: String, tracks: List<Yt.Item>, onBack: () -> Unit) {
+private fun CollectionView(
+    env: AppEnv, title: String, subtitle: String, thumb: String, tracks: List<Yt.Item>, onBack: () -> Unit,
+    shelves: List<YtApi.Shelf>, onOpen: (Yt.Entry) -> Unit, circle: Boolean,
+) {
     val cs = MaterialTheme.colorScheme
     val cover = thumb.ifBlank { tracks.firstOrNull()?.cover.orEmpty() }
     val totalSec = tracks.sumOf { it.durationSec }
@@ -261,7 +268,7 @@ private fun CollectionView(env: AppEnv, title: String, subtitle: String, thumb: 
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
-                    Modifier.size(200.dp).clip(RoundedCornerShape(20.dp)).background(cs.primaryContainer),
+                    Modifier.size(200.dp).clip(if (circle) CircleShape else RoundedCornerShape(20.dp)).background(cs.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Filled.QueueMusic, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(64.dp))
@@ -290,5 +297,7 @@ private fun CollectionView(env: AppEnv, title: String, subtitle: String, thumb: 
                 }
             }
         }
+        // album, singoli e altro dell'artista
+        items(shelves, key = { "shelf_" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, onOpen) }
     }
 }

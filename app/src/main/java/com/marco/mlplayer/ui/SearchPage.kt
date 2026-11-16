@@ -46,6 +46,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -77,13 +79,39 @@ object YtUi {
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
 
-    /** Album, playlist o artista aperto, con i suoi brani. */
-    var open by mutableStateOf<Yt.Entry?>(null)
-    var openTracks by mutableStateOf<List<Yt.Item>?>(null)
-    var openError by mutableStateOf<String?>(null)
+    /** Pagine aperte una dentro l'altra (artista -> album ...): l'ultima è quella visibile. */
+    val trail = mutableStateListOf<Yt.Entry>()
+    val details = mutableStateMapOf<String, YtApi.Detail>()
+    val errors = mutableStateMapOf<String, String>()
+    val open: Yt.Entry? get() = trail.lastOrNull()
+
+    fun back() { if (trail.isNotEmpty()) trail.removeAt(trail.lastIndex) }
 
     fun reset() {
-        query = ""; searched = ""; songs = null; entries = emptyMap(); error = null; open = null; openTracks = null
+        query = ""; searched = ""; songs = null; entries = emptyMap(); error = null; trail.clear()
+    }
+}
+
+/** Apre un artista, album o playlist sopra la pagina attuale (con il suo elenco di brani). */
+fun openYtEntry(env: AppEnv, e: Yt.Entry) {
+    YtUi.trail.add(e)
+    if (YtUi.details.containsKey(e.browseId)) return
+    YtUi.errors.remove(e.browseId)
+    env.app.appScope.launch {
+        val r = withContext(Dispatchers.IO) {
+            runCatching {
+                if (e.kind == Yt.Kind.Artists) YtApi.artist(e.browseId)
+                else YtApi.Detail(
+                    // i brani degli album spesso non hanno la miniatura: uso quella dell'album
+                    YtApi.playlistTracks(e.browseId).map { if (it.thumb.isBlank() && e.thumb.isNotBlank()) it.copy(thumb = e.thumb) else it },
+                    emptyList(),
+                )
+            }
+        }
+        r.onSuccess { YtUi.details[e.browseId] = it }.onFailure {
+            AppLog.e("YouTube", "Apertura di ${e.title} non riuscita", it)
+            YtUi.errors[e.browseId] = "Non riesco ad aprire questo elemento (dettagli nel log)."
+        }
     }
 }
 
@@ -95,27 +123,33 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
     val cs = MaterialTheme.colorScheme
     val focus = LocalFocusManager.current
 
-    BackHandler(enabled = YtUi.open != null) { YtUi.open = null; YtUi.openTracks = null }
+    BackHandler(enabled = YtUi.trail.isNotEmpty()) { YtUi.back() }
 
-    /** Carica i risultati del filtro attuale per [q] (se non ci sono già). */
+    /** Carica i risultati del filtro attuale per [q] (se non ci sono già); i primi si vedono subito, il resto arriva dopo. */
     fun load(q: String, kind: Yt.Kind) {
         val have = if (kind == Yt.Kind.Songs) YtUi.songs != null else YtUi.entries[kind] != null
         if (have && YtUi.searched == q) return
         YtUi.loading = true
         YtUi.error = null
-        env.app.appScope.launch {
+        val scope = env.app.appScope
+        scope.launch {
             val r = withContext(Dispatchers.IO) {
-                runCatching { if (kind == Yt.Kind.Songs) Yt.search(q) to emptyList() else emptyList<Yt.Item>() to Yt.searchEntries(q, kind) }
+                runCatching {
+                    if (kind == Yt.Kind.Songs) {
+                        Yt.search(q) { part -> scope.launch { if (YtUi.searched == q) { YtUi.songs = part; YtUi.loading = false } } }.size
+                    } else {
+                        Yt.searchEntries(q, kind) { part ->
+                            scope.launch { if (YtUi.searched == q) { YtUi.entries = YtUi.entries + (kind to part); YtUi.loading = false } }
+                        }.size
+                    }
+                }
             }
             YtUi.loading = false
-            r.onSuccess { (songs, ents) ->
-                if (YtUi.searched != q) return@onSuccess
-                if (kind == Yt.Kind.Songs) YtUi.songs = songs else YtUi.entries = YtUi.entries + (kind to ents)
-                if ((if (kind == Yt.Kind.Songs) songs.isEmpty() else ents.isEmpty())) YtUi.error = "Nessun risultato"
-            }.onFailure {
-                AppLog.e("YouTube", "Ricerca non riuscita", it)
-                YtUi.error = "Ricerca non riuscita. Controlla la connessione (dettagli nel log)."
-            }
+            r.onSuccess { n -> if (n == 0 && YtUi.searched == q) YtUi.error = "Nessun risultato" }
+                .onFailure {
+                    AppLog.e("YouTube", "Ricerca non riuscita", it)
+                    YtUi.error = "Ricerca non riuscita. Controlla la connessione (dettagli nel log)."
+                }
         }
     }
 
@@ -125,22 +159,9 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
         focus.clearFocus()
         env.app.ytStore.addSearch(q)
         if (YtUi.searched != q) {
-            YtUi.searched = q; YtUi.songs = null; YtUi.entries = emptyMap(); YtUi.open = null; YtUi.openTracks = null
+            YtUi.searched = q; YtUi.songs = null; YtUi.entries = emptyMap(); YtUi.trail.clear()
         }
         load(q, YtUi.kind)
-    }
-
-    fun openEntry(e: Yt.Entry) {
-        YtUi.open = e
-        YtUi.openTracks = null
-        YtUi.openError = null
-        env.app.appScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { YtApi.playlistTracks(e.browseId) } }
-            r.onSuccess { YtUi.openTracks = it }.onFailure {
-                AppLog.e("YouTube", "Apertura di ${e.title} non riuscita", it)
-                YtUi.openError = "Non riesco ad aprire questo elemento (dettagli nel log)."
-            }
-        }
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
@@ -166,7 +187,7 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
                     selected = YtUi.kind == k,
                     onClick = {
                         YtUi.kind = k
-                        YtUi.open = null; YtUi.openTracks = null
+                        YtUi.trail.clear()
                         if (YtUi.searched.isNotEmpty()) load(YtUi.searched, k)
                     },
                     label = { Text(k.label) },
@@ -178,11 +199,18 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
         val songs = YtUi.songs
         val ents = YtUi.entries[YtUi.kind]
         when {
-            open != null -> CollectionState(env, open.title, open.subtitle, open.thumb, YtUi.openTracks, YtUi.openError) {
-                YtUi.open = null; YtUi.openTracks = null
+            open != null -> {
+                val d = YtUi.details[open.browseId]
+                CollectionState(
+                    env, open.title, open.subtitle, open.thumb, d?.tracks, YtUi.errors[open.browseId],
+                    onBack = { YtUi.back() },
+                    shelves = d?.shelves.orEmpty(),
+                    onOpen = { openYtEntry(env, it) },
+                    circle = open.kind == Yt.Kind.Artists,
+                )
             }
             YtUi.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            YtUi.searched.isEmpty() -> idle({ openEntry(it) }, { YtUi.query = it; run() })
+            YtUi.searched.isEmpty() -> idle({ openYtEntry(env, it) }, { YtUi.query = it; run() })
             YtUi.kind == Yt.Kind.Songs && songs != null && songs.isNotEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
                 // il primo risultato in evidenza, come nella ricerca di YouTube Music
                 item { TopSong(env, songs) }
@@ -194,7 +222,7 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
                 }
             }
             YtUi.kind != Yt.Kind.Songs && !ents.isNullOrEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
-                items(ents, key = { it.browseId }) { e -> EntryRow(e) { env.feedback.tapScreen(); openEntry(e) } }
+                items(ents, key = { it.browseId }) { e -> EntryRow(e) { env.feedback.tapScreen(); openYtEntry(env, e) } }
             }
             else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(YtUi.error ?: "Nessun risultato", color = cs.onSurfaceVariant)

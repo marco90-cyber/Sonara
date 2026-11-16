@@ -128,7 +128,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
 }
 
 @Composable
-private fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpen: (Yt.Entry) -> Unit) {
+internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpen: (Yt.Entry) -> Unit) {
     val cs = MaterialTheme.colorScheme
     Column(Modifier.padding(top = 12.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),

@@ -7,12 +7,14 @@ import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
+import org.schabi.newpipe.extractor.search.SearchExtractor
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
@@ -62,14 +64,41 @@ object Yt {
         }
     }
 
-    /** Cerca brani su YouTube Music (solo canzoni). Da chiamare fuori dal thread principale. */
-    fun search(query: String): List<Item> {
+    /** Scorre le pagine di risultati (fino a [maxPages]) e dopo ognuna chiama [onPage] con tutto ciò che c'è finora. */
+    private fun collectPages(ex: SearchExtractor, maxPages: Int, onPage: (List<InfoItem>) -> Unit) {
+        ex.fetchPage()
+        val all = ArrayList<InfoItem>(ex.initialPage.items)
+        onPage(all.toList())
+        var next = ex.initialPage.nextPage
+        var n = 1
+        while (next != null && n < maxPages) {
+            val p = try {
+                ex.getPage(next)
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Pagina $n dei risultati non riuscita: ${e.javaClass.simpleName}")
+                break
+            }
+            all.addAll(p.items)
+            onPage(all.toList())
+            next = p.nextPage
+            n++
+        }
+    }
+
+    /**
+     * Cerca brani su YouTube Music (solo canzoni), su più pagine. Da chiamare fuori dal thread principale.
+     * [progress] riceve l'elenco parziale dopo ogni pagina, così i primi risultati si vedono subito.
+     */
+    fun search(query: String, maxPages: Int = 5, progress: (List<Item>) -> Unit = {}): List<Item> {
         init()
         val ex = ServiceList.YouTube.getSearchExtractor(query, listOf(YoutubeSearchQueryHandlerFactory.MUSIC_SONGS), "")
-        ex.fetchPage()
-        val out = ex.initialPage.items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toItem() }
-        AppLog.i(TAG, "Ricerca \"$query\": ${out.size} brani")
-        return out
+        var last = emptyList<Item>()
+        collectPages(ex, maxPages) { items ->
+            last = items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toItem() }.distinctBy { it.videoId }
+            progress(last)
+        }
+        AppLog.i(TAG, "Ricerca \"$query\": ${last.size} brani")
+        return last
     }
 
     enum class Kind(val label: String) { Songs("Brani"), Artists("Artisti"), Albums("Album"), Playlists("Playlist") }
@@ -77,8 +106,8 @@ object Yt {
     /** Un risultato che non è un brano: artista, album o playlist (si apre per vederne i brani). */
     data class Entry(val kind: Kind, val browseId: String, val title: String, val subtitle: String, val thumb: String)
 
-    /** Cerca artisti, album o playlist su YouTube Music. Da chiamare fuori dal thread principale. */
-    fun searchEntries(query: String, kind: Kind): List<Entry> {
+    /** Cerca artisti, album o playlist su YouTube Music, su più pagine. Da chiamare fuori dal thread principale. */
+    fun searchEntries(query: String, kind: Kind, maxPages: Int = 4, progress: (List<Entry>) -> Unit = {}): List<Entry> {
         init()
         val filter = when (kind) {
             Kind.Artists -> YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS
@@ -87,28 +116,32 @@ object Yt {
             Kind.Songs -> YoutubeSearchQueryHandlerFactory.MUSIC_SONGS
         }
         val ex = ServiceList.YouTube.getSearchExtractor(query, listOf(filter), "")
-        ex.fetchPage()
-        val out = ArrayList<Entry>()
-        for (it in ex.initialPage.items) {
-            val thumb = it.thumbnails.maxByOrNull { t -> t.height * t.width }?.url.orEmpty()
-            when (it) {
-                is PlaylistInfoItem -> {
-                    val list = Regex("[?&]list=([A-Za-z0-9_-]+)").find(it.url)?.groupValues?.get(1) ?: continue
-                    val sub = listOfNotNull(
-                        it.uploaderName?.takeIf { u -> u.isNotBlank() },
-                        it.streamCount.takeIf { n -> n > 0 }?.let { n -> "$n brani" },
-                    ).joinToString(" · ")
-                    out.add(Entry(kind, if (list.startsWith("VL")) list else "VL$list", it.name.orEmpty(), sub, thumb))
-                }
-                is ChannelInfoItem -> {
-                    val id = Regex("/channel/([A-Za-z0-9_-]+)").find(it.url)?.groupValues?.get(1) ?: continue
-                    out.add(Entry(kind, id, it.name.orEmpty(), "Artista", thumb))
-                }
-                else -> {}
-            }
+        var last = emptyList<Entry>()
+        collectPages(ex, maxPages) { items ->
+            last = items.mapNotNull { toEntry(it, kind) }.distinctBy { it.browseId }
+            progress(last)
         }
-        AppLog.i(TAG, "Ricerca ${kind.label} \"$query\": ${out.size} risultati")
-        return out
+        AppLog.i(TAG, "Ricerca ${kind.label} \"$query\": ${last.size} risultati")
+        return last
+    }
+
+    private fun toEntry(it: InfoItem, kind: Kind): Entry? {
+        val thumb = it.thumbnails.maxByOrNull { t -> t.height * t.width }?.url.orEmpty()
+        return when (it) {
+            is PlaylistInfoItem -> {
+                val list = Regex("[?&]list=([A-Za-z0-9_-]+)").find(it.url)?.groupValues?.get(1) ?: return null
+                val sub = listOfNotNull(
+                    it.uploaderName?.takeIf { u -> u.isNotBlank() },
+                    it.streamCount.takeIf { n -> n > 0 }?.let { n -> "$n brani" },
+                ).joinToString(" · ")
+                Entry(kind, if (list.startsWith("VL")) list else "VL$list", it.name.orEmpty(), sub, thumb)
+            }
+            is ChannelInfoItem -> {
+                val id = Regex("/channel/([A-Za-z0-9_-]+)").find(it.url)?.groupValues?.get(1) ?: return null
+                Entry(kind, id, it.name.orEmpty(), "Artista", thumb)
+            }
+            else -> null
+        }
     }
 
     private fun StreamInfoItem.toItem(): Item? {
