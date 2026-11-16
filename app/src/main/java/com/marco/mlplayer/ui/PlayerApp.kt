@@ -79,7 +79,6 @@ import kotlinx.coroutines.delay
 
 private fun Tab.icons(): Pair<ImageVector, ImageVector> = when (this) {
     Tab.Home -> Icons.Filled.Home to Icons.Outlined.Home
-    Tab.Search -> Icons.Filled.Search to Icons.Outlined.Search
     Tab.Library -> Icons.Filled.LibraryMusic to Icons.Outlined.LibraryMusic
     Tab.NowPlaying -> Icons.Filled.PlayCircle to Icons.Outlined.PlayCircle
     Tab.Eq -> Icons.Filled.Equalizer to Icons.Outlined.Equalizer
@@ -136,7 +135,6 @@ fun PlayerApp(env: AppEnv) {
                         Crossfade(targetState = env.tab, animationSpec = tween(200), label = "sezione") { t ->
                             when (t) {
                                 Tab.Home -> HomePage(env)
-                                Tab.Search -> SearchPage(env)
                                 Tab.NowPlaying -> NowPlayingPage(env)
                                 Tab.Library -> LibraryPage(env)
                                 Tab.Eq -> EqualizerScreen(env)

@@ -16,7 +16,6 @@ enum class Overlay { None, Log, Analyzer, Output, Lyrics, Cover, Tags, BulkCover
 /** Sezioni della barra di navigazione in basso. */
 enum class Tab(val label: String) {
     Home("Home"),
-    Search("Cerca"),
     Library("Libreria"),
     NowPlaying("Lettore"),
     Eq("EQ"),

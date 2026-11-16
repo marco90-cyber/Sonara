@@ -1,6 +1,5 @@
 package com.marco.mlplayer.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,11 +20,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,16 +59,18 @@ private object HomeUi {
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var loadedWithAccount by mutableStateOf(false)
-    var open by mutableStateOf<Yt.Entry?>(null)
-    var openTracks by mutableStateOf<List<Yt.Item>?>(null)
-    var openError by mutableStateOf<String?>(null)
 }
 
-/** Home: ascoltati di recente e i suggerimenti di YouTube Music (personalizzati se hai fatto l'accesso). */
+/** Home e ricerca nella stessa pagina: barra di ricerca in alto, sotto i suggerimenti di YouTube Music. */
 @Composable
 fun HomePage(env: AppEnv) {
+    SearchPage(env) { open, search -> HomeContent(env, open, search) }
+}
+
+/** Ricerche recenti, ascoltati di recente e suggerimenti (personalizzati se hai fatto l'accesso). */
+@Composable
+private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) -> Unit) {
     val cs = MaterialTheme.colorScheme
-    BackHandler(enabled = HomeUi.open != null) { HomeUi.open = null; HomeUi.openTracks = null }
 
     fun load() {
         HomeUi.loading = true
@@ -84,62 +88,40 @@ fun HomePage(env: AppEnv) {
             }
         }
     }
-    fun openEntry(e: Yt.Entry) {
-        HomeUi.open = e
-        HomeUi.openTracks = null
-        HomeUi.openError = null
-        env.app.appScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { YtApi.playlistTracks(e.browseId) } }
-            r.onSuccess { HomeUi.openTracks = it }.onFailure {
-                AppLog.e("YouTube", "Apertura di ${e.title} non riuscita", it)
-                HomeUi.openError = "Non riesco ad aprire questo elemento (dettagli nel log)."
-            }
-        }
-    }
     // al primo avvio, e di nuovo quando l'account cambia, per avere i suggerimenti giusti
     LaunchedEffect(YtAuth.connected) {
         if (!HomeUi.loading && (HomeUi.shelves == null || HomeUi.loadedWithAccount != YtAuth.connected)) load()
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(HomeUi.open?.title ?: "Home", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f),
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (HomeUi.open == null) IconButton(onClick = { load() }) { Icon(Icons.Filled.Refresh, contentDescription = "Aggiorna") }
+    val shelves = HomeUi.shelves
+    val recent = env.app.ytStore.history.take(15)
+    val past = env.app.ytStore.searches.take(8)
+    when {
+        shelves == null && HomeUi.loading && recent.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        shelves == null && HomeUi.error != null && recent.isEmpty() -> Column(
+            Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
+            Button(onClick = { load() }) { Text("Riprova") }
         }
-        val open = HomeUi.open
-        if (open != null) {
-            val tracks = HomeUi.openTracks
-            Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                when {
-                    HomeUi.openError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(HomeUi.openError!!, color = cs.onSurfaceVariant) }
-                    tracks == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nessun brano", color = cs.onSurfaceVariant) }
-                    else -> TrackList(env, tracks)
-                }
-            }
-            return@Column
-        }
-
-        val shelves = HomeUi.shelves
-        val recent = env.app.ytStore.history.take(15)
-        when {
-            shelves == null && HomeUi.loading && recent.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            shelves == null && HomeUi.error != null && recent.isEmpty() -> Column(
-                Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
-                Button(onClick = { load() }) { Text("Riprova") }
-            }
-            else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
-                if (recent.isNotEmpty()) {
-                    item {
-                        ShelfRow("Ascoltati di recente", recent.map { YtApi.Card(it, null) }, env) { openEntry(it) }
+        else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
+            if (past.isNotEmpty()) item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(past) { q ->
+                        AssistChip(onClick = { search(q) }, label = { Text(q, maxLines = 1) }, leadingIcon = { Icon(Icons.Filled.History, null) })
                     }
                 }
-                items(shelves.orEmpty(), key = { it.title }) { sh -> ShelfRow(sh.title, sh.cards, env) { openEntry(it) } }
-                if (HomeUi.loading) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
-                if (shelves != null && HomeUi.error != null) item { Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+            }
+            if (recent.isNotEmpty()) item {
+                ShelfRow("Ascoltati di recente", recent.map { YtApi.Card(it, null) }, env, open)
+            }
+            items(shelves.orEmpty(), key = { it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
+            if (HomeUi.loading) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            if (shelves != null && HomeUi.error != null) item { Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+            item {
+                OutlinedButton(onClick = { load() }, modifier = Modifier.padding(16.dp)) {
+                    Icon(Icons.Filled.Refresh, null); Text("Aggiorna suggerimenti")
+                }
             }
         }
     }

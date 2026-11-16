@@ -38,7 +38,10 @@ object Yt {
         val artist: String,
         val durationSec: Long,
         val thumb: String,
-    )
+    ) {
+        /** Miniatura da mostrare: quella trovata oppure, se manca, quella del video (esiste sempre). */
+        val cover: String get() = thumb.ifBlank { "https://i.ytimg.com/vi/$videoId/mqdefault.jpg" }
+    }
 
     class Resolved(val url: String, val expiresAtMs: Long, val mime: String, val bitrateKbps: Int)
 
@@ -170,7 +173,7 @@ object Yt {
         sampleRate = 0, bits = 0, bitrateKbps = 0,
         ext = "", size = 0, modified = 0,
         albumKey = "yt",
-        coverUrl = i.thumb,
+        coverUrl = i.cover,
     )
 
     private class OkDownloader(private val client: OkHttpClient) : Downloader() {

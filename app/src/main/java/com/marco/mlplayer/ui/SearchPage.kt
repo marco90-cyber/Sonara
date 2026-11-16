@@ -91,7 +91,7 @@ private fun fmt(sec: Long): String = "%d:%02d".format(sec / 60, sec % 60)
 
 /** Sezione "Cerca": brani, artisti, album e playlist di YouTube Music, suonati dal player di Sonara. */
 @Composable
-fun SearchPage(env: AppEnv) {
+fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search: (String) -> Unit) -> Unit = { _, _ -> }) {
     val cs = MaterialTheme.colorScheme
     val focus = LocalFocusManager.current
 
@@ -160,7 +160,7 @@ fun SearchPage(env: AppEnv) {
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { run() }),
         )
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (YtUi.searched.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (k in Yt.Kind.entries) {
                 FilterChip(
                     selected = YtUi.kind == k,
@@ -190,28 +190,7 @@ fun SearchPage(env: AppEnv) {
                 }
             }
             YtUi.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            YtUi.searched.isEmpty() -> {
-                val past = env.app.ytStore.searches
-                LazyColumn(Modifier.fillMaxSize()) {
-                    if (past.isNotEmpty()) {
-                        item {
-                            Text("Ricerche recenti", style = MaterialTheme.typography.titleSmall, color = cs.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 8.dp))
-                        }
-                        items(past) { q ->
-                            Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                                    .clickable { YtUi.query = q; run() }.padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(Icons.Filled.History, null, tint = cs.onSurfaceVariant)
-                                Spacer(Modifier.width(16.dp))
-                                Text(q, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                }
-            }
+            YtUi.searched.isEmpty() -> idle({ openEntry(it) }, { YtUi.query = it; run() })
             YtUi.kind == Yt.Kind.Songs && songs != null && songs.isNotEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
                 // il primo risultato in evidenza, come nella ricerca di YouTube Music
                 item { TopSong(env, songs) }
@@ -246,7 +225,7 @@ private fun TopSong(env: AppEnv, songs: List<Yt.Item>) {
     ) {
         Box(Modifier.size(72.dp).clip(RoundedCornerShape(14.dp)).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.MusicNote, null, tint = cs.onPrimaryContainer)
-            if (top.thumb.isNotBlank()) AsyncImage(top.thumb, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            AsyncImage(top.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -303,9 +282,7 @@ fun YtRow(env: AppEnv, item: Yt.Item, onClick: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(Icons.Filled.MusicNote, null, tint = cs.onPrimaryContainer)
-            if (item.thumb.isNotBlank()) {
-                AsyncImage(item.thumb, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            }
+            AsyncImage(item.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {

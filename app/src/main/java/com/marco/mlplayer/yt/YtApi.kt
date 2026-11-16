@@ -88,7 +88,7 @@ object YtApi {
     data class Card(val song: Yt.Item?, val entry: Yt.Entry?) {
         val title get() = song?.title ?: entry?.title.orEmpty()
         val subtitle get() = song?.artist ?: entry?.subtitle.orEmpty()
-        val thumb get() = song?.thumb ?: entry?.thumb.orEmpty()
+        val thumb get() = song?.cover ?: entry?.thumb.orEmpty()
     }
 
     data class Shelf(val title: String, val cards: List<Card>)
