@@ -325,13 +325,14 @@ class AudioEngine(
 
     // ------------------------------------------------------------------ comandi
 
-    private fun toMediaItem(t: Track): MediaItem {
+    internal fun toMediaItem(t: Track): MediaItem {
         val cover = library.trackCoverFile(t)
         val meta = MediaMetadata.Builder()
             .setTitle(t.title)
             .setArtist(t.artist)
             .setAlbumTitle(t.album)
         if (cover != null) meta.setArtworkUri(Uri.fromFile(cover))
+        else if (t.coverUrl.isNotBlank()) meta.setArtworkUri(Uri.parse(t.coverUrl))
         return MediaItem.Builder()
             .setMediaId(t.id)
             .setUri(t.uri)
@@ -355,6 +356,18 @@ class AudioEngine(
         player.addMediaItem(i, toMediaItem(t))
         updateCurrent()
         AppLog.i("Audio", "Aggiunto alla coda (#$i): ${t.title}")
+    }
+
+    /** Adotta una coda scelta da un controller esterno (Android Auto): il player la imposta da sé. */
+    fun adoptQueue(tracks: List<Track>) {
+        scanCancel.set(true)
+        scanCancel = java.util.concurrent.atomic.AtomicBoolean(false)
+        scanQueued.clear()
+        queue = tracks
+        runtimeSampleRate = 0
+        runtimePcmBits = 0
+        runtimeBitrate = 0
+        consecutiveErrors = 0
     }
 
     fun playQueue(tracks: List<Track>, startIndex: Int, shuffle: Boolean = false) {
