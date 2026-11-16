@@ -19,6 +19,8 @@ data class Track(
     val size: Long,
     val modified: Long,
     val albumKey: String,
+    /** Miniatura online (brani YouTube Music); vuota per i file locali. */
+    val coverUrl: String = "",
 ) {
     /** Hi-Res: oltre 48 kHz oppure più di 16 bit. */
     val isHiResFile: Boolean get() = sampleRate > 48000 || bits > 16

@@ -15,6 +15,7 @@ enum class Overlay { None, Log, Analyzer, Output, Lyrics, Cover, Tags, BulkCover
 
 /** Sezioni della barra di navigazione in basso. */
 enum class Tab(val label: String) {
+    Search("Cerca"),
     Library("Libreria"),
     NowPlaying("Lettore"),
     Eq("Equalizzatore"),
@@ -100,7 +101,7 @@ class AppEnv(val app: MLPlayerApp) {
 
     var actions: Actions? = null
 
-    var tab by mutableStateOf(Tab.NowPlaying)
+    var tab by mutableStateOf(Tab.Search)
     var overlay by mutableStateOf(Overlay.None)
 
     /** Pannello "Percorso del segnale" aperto (dalle informazioni sulla qualità nel lettore). */

@@ -17,6 +17,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.marco.mlplayer.yt.Yt
+import com.marco.mlplayer.yt.YtDataSource
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
@@ -85,6 +88,8 @@ class AudioEngine(
     /** Brani della coda attuale, nell'ordine in cui sono stati messi (per la schermata Coda). */
     val queueTracks: List<Track> get() = queue
     private var consecutiveErrors = 0
+    private var ytRetryFor: String? = null
+    private val coverTried = HashSet<String>()
     private var runtimeSampleRate = 0
     private var runtimePcmBits = 0
     private var runtimeBitrate = 0
@@ -108,6 +113,8 @@ class AudioEngine(
         // FFmpeg (Jellyfin) solo per i formati che Android non sa decodificare (ALAC, APE, WavPack, DSD...)
         factory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         player = ExoPlayer.Builder(app, factory)
+            // i brani "yt:<id>" vengono risolti in un link audio solo all'apertura del flusso
+            .setMediaSourceFactory(DefaultMediaSourceFactory(YtDataSource.factory(app)))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -235,6 +242,18 @@ class AudioEngine(
                     player.play()
                     return
                 }
+                // link YouTube scaduto o rifiutato: lo ricavo di nuovo e riprovo una volta
+                val cur = currentTrack
+                if (cur != null && cur.uri.startsWith("yt:") && ytRetryFor != cur.uri) {
+                    ytRetryFor = cur.uri
+                    Yt.invalidate(cur.uri.removePrefix("yt:"))
+                    AppLog.w("Audio", "Flusso YouTube non riuscito, riprovo: ${cur.title}")
+                    val pos = player.currentPosition
+                    player.prepare()
+                    player.seekTo(pos)
+                    player.play()
+                    return
+                }
                 consecutiveErrors++
                 val bad = currentTrack
                 if (bad != null) AppLog.w("Audio", "Brano non riproducibile: ${bad.title} (${bad.formatLabel})")
@@ -249,7 +268,7 @@ class AudioEngine(
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 AppLog.i("Audio", "Stato player: $playbackState (1=inattivo 2=buffering 3=pronto 4=finito)")
-                if (playbackState == Player.STATE_READY) consecutiveErrors = 0
+                if (playbackState == Player.STATE_READY) { consecutiveErrors = 0; ytRetryFor = null }
             }
         })
         AppLog.i(
@@ -279,6 +298,13 @@ class AudioEngine(
         }
         queueIndex = idx
         queueSize = queue.size
+        if (t != null && t.coverUrl.isNotBlank() && library.trackCoverFile(t) == null && coverTried.add(t.id)) {
+            // miniatura del brano online: la scarico una volta e la tengo come copertina del brano
+            scanExecutor.execute {
+                val bytes = com.marco.mlplayer.util.Http.bytes(t.coverUrl)
+                if (bytes != null) android.os.Handler(android.os.Looper.getMainLooper()).post { library.setTrackCover(t, bytes) }
+            }
+        }
         if (t == null) {
             hiResNow = false
             audioInfo = ""
@@ -451,6 +477,7 @@ class AudioEngine(
         scanningCurrent = false
         for (i in listOf(idx, next)) {
             val t = queue.getOrNull(i) ?: continue
+            if (t.uri.startsWith("yt:")) continue   // niente analisi del volume sui flussi online
             if (settings.loudnessCache.get(t.uri) != null) continue
             if (i == idx) scanningCurrent = true
             if (!scanQueued.add(t.uri)) continue

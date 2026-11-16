@@ -51,3 +51,6 @@ Traduzione e romanizzazione: servizio pubblico di Google Traduttore, come in Las
 Copertine: iTunes Search API, Deezer API, MusicBrainz e Cover Art Archive.
 
 Sonara - nato da MLPlayer (https://github.com/marco90-cyber/MlPlayer), stessa licenza GPL-3.0.
+
+NewPipeExtractor (https://github.com/TeamNewPipe/NewPipeExtractor) - GPL-3.0
+  Libreria usata per ricerca e stream di YouTube Music (come in LastWave).

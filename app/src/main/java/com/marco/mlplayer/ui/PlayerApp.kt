@@ -34,11 +34,13 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.outlined.Equalizer
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -74,6 +76,7 @@ import com.marco.mlplayer.data.rememberCover
 import kotlinx.coroutines.delay
 
 private fun Tab.icons(): Pair<ImageVector, ImageVector> = when (this) {
+    Tab.Search -> Icons.Filled.Search to Icons.Outlined.Search
     Tab.Library -> Icons.Filled.LibraryMusic to Icons.Outlined.LibraryMusic
     Tab.NowPlaying -> Icons.Filled.PlayCircle to Icons.Outlined.PlayCircle
     Tab.Eq -> Icons.Filled.Equalizer to Icons.Outlined.Equalizer
@@ -129,6 +132,7 @@ fun PlayerApp(env: AppEnv) {
                     Box(Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize()) {
                         Crossfade(targetState = env.tab, animationSpec = tween(200), label = "sezione") { t ->
                             when (t) {
+                                Tab.Search -> SearchPage(env)
                                 Tab.NowPlaying -> NowPlayingPage(env)
                                 Tab.Library -> MenuPage(env, env.libraryNav)
                                 Tab.Eq -> EqualizerScreen(env)

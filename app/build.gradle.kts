@@ -60,6 +60,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // NewPipeExtractor usa API Java recenti: il desugaring le porta anche sotto Android 13
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -112,6 +114,11 @@ dependencies {
     implementation("com.google.oboe:oboe:1.10.0")
     // driver USB per l'uscita esclusiva al DAC (decent-player, MIT)
     implementation(project(":usbaudio"))
+
+    // YouTube Music: ricerca e stream (NewPipeExtractor, GPL-3.0, come in LastWave)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.0.4")
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
