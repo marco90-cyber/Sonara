@@ -189,9 +189,25 @@ object YtApi {
         return when (p.size) { 2 -> p[0] * 60 + p[1]; 3 -> p[0] * 3600 + p[1] * 60 + p[2]; else -> 0 }
     }
 
+    /** La miniatura più grande trovata sotto [root] (YouTube la mette in una lista "thumbnails"). */
     private fun thumbOf(root: JSONObject?): String {
-        val t = root?.let { collect(it, "thumbnails").firstOrNull() } ?: return ""
-        return t.optJSONArray("thumbnails")?.let { a -> a.optJSONObject(a.length() - 1)?.optString("url") }.orEmpty()
+        var found: JSONArray? = null
+        fun walk(n: Any?) {
+            if (found != null) return
+            when (n) {
+                is JSONObject -> n.keys().forEach { k ->
+                    val v = n.opt(k)
+                    if (k == "thumbnails" && v is JSONArray && v.length() > 0) { found = v; return@forEach }
+                    walk(v)
+                }
+                is JSONArray -> for (i in 0 until n.length()) walk(n.opt(i))
+            }
+        }
+        walk(root)
+        val a = found ?: return ""
+        val url = a.optJSONObject(a.length() - 1)?.optString("url").orEmpty()
+        // le miniature di Google hanno la misura nell'indirizzo ("=w60-h60"): chiedo una versione più nitida
+        return url.replace(Regex("=w\\d+-h\\d+"), "=w544-h544")
     }
 
     private fun runsText(o: JSONObject?): String {
