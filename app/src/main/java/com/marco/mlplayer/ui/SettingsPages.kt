@@ -53,13 +53,6 @@ fun SettingsHome(env: AppEnv) {
                 env.feedback.tapScreen(); env.overlay = Overlay.Analyzer
             }
         }
-        MLGroup("Libreria") {
-            MLNavRow(
-                "Cartelle e scansione",
-                "${s.folders.size} cartelle · ${env.library.tracks.size} brani",
-                icon = Icons.Filled.LibraryMusic
-            ) { go(env.libraryScreen()) }
-        }
         MLGroup("Tatto") {
             MLSwitchRow("Vibrazione al tocco", null, s.hapticScreen, icon = Icons.Filled.Vibration) {
                 s.hapticScreen = it
