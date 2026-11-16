@@ -55,7 +55,7 @@ object YtDownloads {
             val a = JSONArray(indexFile.readText())
             for (i in 0 until a.length()) {
                 val o = a.getJSONObject(i)
-                val item = Yt.Item(o.getString("id"), o.optString("title"), o.optString("artist"), o.optInt("dur"), o.optString("thumb"))
+                val item = Yt.Item(o.getString("id"), o.optString("title"), o.optString("artist"), o.optLong("dur"), o.optString("thumb"))
                 entries.add(Entry(item, o.getString("uri")))
             }
         }.onFailure { AppLog.w(TAG, "Elenco download non leggibile", it) }
