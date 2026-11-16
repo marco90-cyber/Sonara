@@ -1,0 +1,118 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+android {
+    namespace = "com.marco.mlplayer"
+    compileSdk = 35
+    // Versione NDK: su GitHub Actions viene rilevata dal runner (ANDROID_NDK_VERSION).
+    System.getenv("ANDROID_NDK_VERSION")?.takeIf { it.isNotBlank() }?.let { ndkVersion = it }
+
+    defaultConfig {
+        applicationId = "com.marco.sonara"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+        versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+        buildConfigField("String", "REPO_URL", "\"https://github.com/marco90-cyber/Sonara\"")
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+    defaultConfig {
+        externalNativeBuild {
+            cmake {
+                // Oboe come libreria condivisa (prefab)
+                arguments += listOf("-DANDROID_STL=c++_shared")
+            }
+        }
+    }
+
+    // Firma privata: il keystore arriva dai segreti di GitHub (KEYSTORE_BASE64 decodificato dal workflow).
+    // Nessuna firma di debug per la release: senza segreti il workflow si ferma.
+    val ksFile = System.getenv("SONARA_KEYSTORE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (ksFile != null) {
+            create("private") {
+                storeFile = ksFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            signingConfig = if (ksFile != null) signingConfigs.getByName("private") else null
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+        prefab = true
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+}
+
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+    implementation(composeBom)
+    implementation("com.github.marco90-cyber:MLTheme:1.0.0")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.documentfile:documentfile:1.0.1")
+    // colore principale della copertina (tema dai colori del brano)
+    implementation("androidx.palette:palette-ktx:1.0.0")
+    // lettura e scrittura dei tag nei file (LGPL)
+    implementation("net.jthink:jaudiotagger:3.0.1")
+    // immagini da internet (ricerca copertine)
+    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    val media3 = "1.5.1"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-session:$media3")
+    implementation("androidx.media3:media3-common:$media3")
+    // decoder FFmpeg (ALAC, APE, WavPack, DSD e altri formati che Android non legge)
+    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.5.+")
+    // Oboe / AAudio per l'uscita esclusiva MMAP
+    implementation("com.google.oboe:oboe:1.10.0")
+    // driver USB per l'uscita esclusiva al DAC (decent-player, MIT)
+    implementation(project(":usbaudio"))
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+}

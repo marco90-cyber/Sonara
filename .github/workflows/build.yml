@@ -1,0 +1,130 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Rileva NDK e CMake del runner
+        run: |
+          NDK_VER=$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)
+          echo "NDK trovato: $NDK_VER"
+          echo "ANDROID_NDK_VERSION=$NDK_VER" >> "$GITHUB_ENV"
+          ls "$ANDROID_HOME/cmake" || true
+
+      - name: Test nativi del motore DSP (g++ sul runner)
+        run: |
+          S=app/src/main/cpp/soxr
+          for f in soxr data-io dbesi0 filter fft4g64 fft4g32 cr cr32 cr64; do
+            gcc -O2 -w -DSOXR_LIB -DNDEBUG -I$S -c $S/$f.c -o /tmp/soxr_$f.o
+          done
+          g++ -std=c++17 -O2 -Wall app/src/test/cpp/dsp_selftest.cpp /tmp/soxr_*.o -lm -o dsp_selftest
+          ./dsp_selftest
+
+      - name: Test unitari Kotlin
+        shell: bash
+        run: |
+          set +e
+          gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee out_test.txt
+          st=${PIPESTATUS[0]}
+          if [ $st -ne 0 ]; then
+            grep -E "^e: |FAILED|AssertionError|Exception|expected|error:" out_test.txt | head -25 | while IFS= read -r l; do echo "::error::${l:0:400}"; done
+          fi
+          exit $st
+
+      - name: Prepara la firma privata
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/sonara.jks"
+            echo "SONARA_KEYSTORE=$RUNNER_TEMP/sonara.jks" >> "$GITHUB_ENV"
+            echo "Firma: chiave privata"
+          else
+            echo "::error::Segreti della firma assenti (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD): niente APK con la chiave di debug"
+            exit 1
+          fi
+
+      - name: Compila APK (release)
+        shell: bash
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set +e
+          gradle :app:assembleRelease --stacktrace 2>&1 | tee out_build.txt
+          st=${PIPESTATUS[0]}
+          if [ $st -ne 0 ]; then
+            grep -E "^e: |error:|What went wrong|FAILED|Execution failed|CMake|ndk" out_build.txt | head -25 | while IFS= read -r l; do echo "::error::${l:0:400}"; done
+          fi
+          exit $st
+
+      - name: Rinomina APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk dist/Sonara-1.0.${{ github.run_number }}.apk
+
+      - name: Verifica la firma
+        shell: bash
+        run: |
+          SIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$SIGNER" verify --print-certs dist/*.apk | tee signer.txt
+          if grep -qi "CN=Android Debug" signer.txt; then
+            echo "::error::L'APK risulta firmato con la chiave di debug"
+            exit 1
+          fi
+          SHA=$(grep -m1 "SHA-256 digest" signer.txt | sed 's/.*: //')
+          echo "CERT_SHA256=$SHA" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sonara-apk
+          path: dist/*.apk
+
+      - name: Crea release con l'APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Sonara 1.0.${{ github.run_number }}
+          body: |
+            Firmato con la chiave privata di Sonara.
+            Certificato SHA-256: ${{ env.CERT_SHA256 }}
+          files: dist/*.apk
+
+
+      - name: Salva il log degli errori nel ramo ci-log (solo se la build fallisce)
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p /tmp/cilog
+          for f in out_test.txt out_build.txt; do [ -f "$f" ] && cp "$f" /tmp/cilog/; done
+          [ -f out_build.txt ] && grep -nE "^e: |error:|What went wrong|FAILED|Could not|not found|Execution failed" out_build.txt | head -200 > /tmp/cilog/errori.txt || true
+          [ -f out_test.txt ] && grep -nE "^e: |error:|What went wrong|FAILED|Could not|not found|Execution failed" out_test.txt | head -200 >> /tmp/cilog/errori.txt || true
+          cd /tmp/cilog
+          git init -q
+          git config user.name "ci"
+          git config user.email "ci@users.noreply.github.com"
+          git checkout -q -b ci-log
+          git add -A
+          git commit -q -m "Log della build ${{ github.run_number }} (${{ github.sha }})"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-log

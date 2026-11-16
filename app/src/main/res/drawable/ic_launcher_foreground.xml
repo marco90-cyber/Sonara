@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MLapps icon - generated -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M35.8,54a18.2,18.2 0 1 0 36.4,0a18.2,18.2 0 1 0 -36.4,0z" android:fillColor="#151515"/>
+    <path android:pathData="M35.8,54a18.2,18.2 0 1 0 36.4,0a18.2,18.2 0 1 0 -36.4,0z" android:strokeColor="#C9A24A" android:strokeWidth="2.6" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+    <path android:pathData="M40.6,54a13.4,13.4 0 1 0 26.8,0a13.4,13.4 0 1 0 -26.8,0z" android:strokeColor="#3A3A3A" android:strokeWidth="0.9" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+    <path android:pathData="M44.4,54a9.6,9.6 0 1 0 19.2,0a9.6,9.6 0 1 0 -19.2,0z" android:strokeColor="#3A3A3A" android:strokeWidth="0.9" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+    <path android:pathData="M49.4,54a4.6,4.6 0 1 0 9.2,0a4.6,4.6 0 1 0 -9.2,0z" android:fillColor="#C9A24A"/>
+    <path android:pathData="M52.9,54a1.1,1.1 0 1 0 2.2,0a1.1,1.1 0 1 0 -2.2,0z" android:fillColor="#151515"/>
+</vector>

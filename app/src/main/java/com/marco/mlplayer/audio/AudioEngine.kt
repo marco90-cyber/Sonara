@@ -1,0 +1,487 @@
+package com.marco.mlplayer.audio
+
+import android.app.Application
+import android.content.ComponentName
+import android.content.Context
+import android.net.Uri
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.marco.mlplayer.data.Library
+import com.marco.mlplayer.data.Settings
+import com.marco.mlplayer.data.Track
+import com.marco.mlplayer.util.AppLog
+
+/**
+ * Motore audio condiviso da interfaccia e servizio in background.
+ * ExoPlayer + equalizzatore DSP + uscita Hi-Res (float a 32 bit).
+ */
+class AudioEngine(
+    private val app: Application,
+    private val settings: Settings,
+    private val library: Library,
+) {
+    val analyzer = Analyzer()
+    val eqProcessor = EqAudioProcessor(analyzer)
+
+    val outputMonitor = OutputMonitor(app)
+
+    /** Uscite dirette (USB esclusiva, AudioTrack DIRECT, AAudio) e percorso del segnale. */
+    val outputs = com.marco.mlplayer.audio.direct.DirectOutputs(app, settings)
+
+    val player: ExoPlayer
+
+    /** Player con le dissolvenze: lo usano i comandi dell'app e la sessione multimediale. */
+    val controls: FadingPlayer
+
+    var currentTrack by mutableStateOf<Track?>(null)
+        private set
+    var isPlaying by mutableStateOf(false)
+        private set
+    var hiResNow by mutableStateOf(false)
+        private set
+    var audioInfo by mutableStateOf("")
+        private set
+    var queueIndex by mutableIntStateOf(0)
+        private set
+    var queueSize by mutableIntStateOf(0)
+        private set
+    var shuffleOn by mutableStateOf(settings.shuffle)
+        private set
+    var repeatMode by mutableIntStateOf(settings.repeatMode)
+        private set
+    var volume by mutableStateOf(settings.volume)
+        private set
+
+    /** Formato realmente aperto verso Android (AudioTrack), dichiarato da Media3. Vuoto = nessun dato. */
+    var trackSampleRate by mutableIntStateOf(0)
+        private set
+    var trackEncoding by mutableStateOf("")
+        private set
+    var trackOffload by mutableStateOf(false)
+        private set
+
+    fun setAdaptiveOutput(on: Boolean) {
+        settings.adaptiveOutput = on
+    }
+
+    private var queue: List<Track> = emptyList()
+
+    /** Brani della coda attuale, nell'ordine in cui sono stati messi (per la schermata Coda). */
+    val queueTracks: List<Track> get() = queue
+    private var consecutiveErrors = 0
+    private var runtimeSampleRate = 0
+    private var runtimePcmBits = 0
+    private var runtimeBitrate = 0
+    private var controllerFuture: Any? = null
+
+    init {
+        val factory = object : DefaultRenderersFactory(app) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): AudioSink {
+                val inner = DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(true)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .build()
+                // Il DSP gira prima del sink: il sink di Media3 salta i processori per il PCM 24/32 bit.
+                return ProcessingAudioSink(inner, eqProcessor, outputMonitor, outputs) { settings.adaptiveOutput }
+            }
+        }
+        // FFmpeg (Jellyfin) solo per i formati che Android non sa decodificare (ALAC, APE, WavPack, DSD...)
+        factory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        player = ExoPlayer.Builder(app, factory)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                true
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_LOCAL)
+            .build()
+
+        player.shuffleModeEnabled = settings.shuffle
+        player.repeatMode = when (settings.repeatMode) {
+            1 -> Player.REPEAT_MODE_ALL
+            2 -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+        controls = FadingPlayer(player, { settings.dsp.fades }) { settings.volume }
+        controls.refreshVolume()
+
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioTrackInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                audioTrackConfig: AudioSink.AudioTrackConfig,
+            ) {
+                trackSampleRate = audioTrackConfig.sampleRate
+                trackEncoding = when (audioTrackConfig.encoding) {
+                    C.ENCODING_PCM_16BIT -> "PCM 16 bit"
+                    C.ENCODING_PCM_24BIT -> "PCM 24 bit"
+                    C.ENCODING_PCM_32BIT -> "PCM 32 bit"
+                    C.ENCODING_PCM_FLOAT -> "PCM float 32 bit"
+                    else -> "codifica ${audioTrackConfig.encoding}"
+                }
+                trackOffload = audioTrackConfig.offload
+                AppLog.i("Audio", "AudioTrack aperto: $trackSampleRate Hz, $trackEncoding, offload=$trackOffload")
+            }
+        })
+
+        eqProcessor.setSettings(settings.dsp)
+        var lastRgMode = settings.dsp.replayGain
+        settings.onDspChanged = { cfg ->
+            eqProcessor.setSettings(cfg)
+            if (cfg.replayGain != lastRgMode) {
+                lastRgMode = cfg.replayGain
+                if (cfg.replayGain != ReplayGain.OFF) planScans()
+            }
+        }
+        // la loudness segue il volume del telefono
+        outputMonitor.onKindChanged = { updateListenVolume() }
+        updateListenVolume()
+        app.contentResolver.registerContentObserver(
+            android.provider.Settings.System.CONTENT_URI, true,
+            object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) = updateListenVolume()
+            }
+        )
+
+        player.addListener(object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                AppLog.i("Audio", "playWhenReady=$playWhenReady, motivo=$reason (1=utente 2=perdita focus audio 3=scollegamento/noisy 4=remoto 5=fine brano)")
+            }
+
+            override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+                AppLog.i("Audio", "Riproduzione sospesa: motivo=$playbackSuppressionReason")
+            }
+
+            override fun onIsPlayingChanged(isPlayingNow: Boolean) {
+                isPlaying = isPlayingNow
+                AppLog.d("Audio", "isPlaying=$isPlayingNow")
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                updateCurrent()
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                for (g in tracks.groups) {
+                    if (g.type == C.TRACK_TYPE_AUDIO && g.isSelected && g.length > 0) {
+                        val f = g.getTrackFormat(0)
+                        runtimeSampleRate = if (f.sampleRate > 0) f.sampleRate else 0
+                        runtimeBitrate = if (f.bitrate > 0) f.bitrate / 1000 else 0
+                        runtimePcmBits = when (f.pcmEncoding) {
+                            C.ENCODING_PCM_16BIT -> 16
+                            C.ENCODING_PCM_24BIT -> 24
+                            C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 32
+                            else -> 0
+                        }
+                        AppLog.i(
+                            "Audio",
+                            "Formato: ${f.sampleMimeType} ${f.sampleRate} Hz, ${f.channelCount} ch, " +
+                                "pcm=${f.pcmEncoding}, bitrate=${f.bitrate}"
+                        )
+                        break
+                    }
+                }
+                updateCurrent()
+            }
+
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                shuffleOn = shuffleModeEnabled
+                settings.shuffle = shuffleModeEnabled
+            }
+
+            override fun onRepeatModeChanged(mode: Int) {
+                val v = when (mode) {
+                    Player.REPEAT_MODE_ALL -> 1
+                    Player.REPEAT_MODE_ONE -> 2
+                    else -> 0
+                }
+                repeatMode = v
+                settings.repeatMode = v
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                AppLog.e("Audio", "Errore di riproduzione: ${error.errorCodeName}", error)
+                val sinkError = error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
+                if (sinkError && settings.adaptiveOutput && !outputMonitor.safeMode) {
+                    // il dispositivo ha rifiutato il formato scelto: riprovo con 16 bit a 44,1/48 kHz
+                    outputMonitor.safeMode = true
+                    AppLog.w("Audio", "Uscita rifiutata dal dispositivo: riprovo in modalità prudente (16 bit, 44,1/48 kHz)")
+                    val pos = player.currentPosition
+                    player.prepare()
+                    player.seekTo(pos)
+                    player.play()
+                    return
+                }
+                consecutiveErrors++
+                val bad = currentTrack
+                if (bad != null) AppLog.w("Audio", "Brano non riproducibile: ${bad.title} (${bad.formatLabel})")
+                if (player.hasNextMediaItem() && consecutiveErrors < 10) {
+                    player.seekToNextMediaItem()
+                    player.prepare()
+                    player.play()
+                } else {
+                    player.stop()
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                AppLog.i("Audio", "Stato player: $playbackState (1=inattivo 2=buffering 3=pronto 4=finito)")
+                if (playbackState == Player.STATE_READY) consecutiveErrors = 0
+            }
+        })
+        AppLog.i(
+            "Audio",
+            "Motore audio pronto (uscita adattiva: ${if (settings.adaptiveOutput) "sì" else "no"})"
+        )
+    }
+
+    /** Collega il servizio in background (notifica, controlli multimediali). */
+    fun connectService() {
+        try {
+            val token = SessionToken(app, ComponentName(app, PlaybackService::class.java))
+            controllerFuture = MediaController.Builder(app, token).buildAsync()
+        } catch (e: Throwable) {
+            AppLog.e("Audio", "Servizio di riproduzione non collegato", e)
+        }
+    }
+
+    private fun updateCurrent() {
+        val idx = player.currentMediaItemIndex
+        val t = queue.getOrNull(idx)
+        val prevUri = currentTrack?.uri
+        currentTrack = t
+        if (t?.uri != prevUri) {
+            eqProcessor.scannedGain = t?.let { settings.loudnessCache.get(it.uri) }
+            planScans()
+        }
+        queueIndex = idx
+        queueSize = queue.size
+        if (t == null) {
+            hiResNow = false
+            audioInfo = ""
+            return
+        }
+        val sr = if (runtimeSampleRate > 0) runtimeSampleRate else t.sampleRate
+        val bits = if (t.bits > 0) t.bits else runtimePcmBits
+        hiResNow = t.isHiResFile || sr > 48000 || runtimePcmBits > 16
+        val parts = ArrayList<String>()
+        parts.add(t.formatLabel)
+        if (sr > 0) parts.add(if (sr % 1000 == 0) "${sr / 1000} kHz" else String.format("%.1f kHz", sr / 1000.0))
+        if (bits > 0) parts.add("$bits bit")
+        val br = if (t.bitrateKbps > 0) t.bitrateKbps else runtimeBitrate
+        if (br > 0) parts.add("$br kbps")
+        audioInfo = parts.joinToString(" · ")
+    }
+
+    // ------------------------------------------------------------------ comandi
+
+    private fun toMediaItem(t: Track): MediaItem {
+        val cover = library.trackCoverFile(t)
+        val meta = MediaMetadata.Builder()
+            .setTitle(t.title)
+            .setArtist(t.artist)
+            .setAlbumTitle(t.album)
+        if (cover != null) meta.setArtworkUri(Uri.fromFile(cover))
+        return MediaItem.Builder()
+            .setMediaId(t.id)
+            .setUri(t.uri)
+            .setMediaMetadata(meta.build())
+            .build()
+    }
+
+    fun playQueue(tracks: List<Track>, startIndex: Int, shuffle: Boolean = false) {
+        if (tracks.isEmpty()) return
+        scanCancel.set(true)            // annulla le analisi della coda precedente
+        scanCancel = java.util.concurrent.atomic.AtomicBoolean(false)
+        scanQueued.clear()
+        queue = tracks
+        runtimeSampleRate = 0
+        runtimePcmBits = 0
+        runtimeBitrate = 0
+        consecutiveErrors = 0
+        val start = startIndex.coerceIn(0, tracks.lastIndex)
+        player.shuffleModeEnabled = shuffle
+        player.setMediaItems(tracks.map { toMediaItem(it) }, start, 0L)
+        player.prepare()
+        player.play()
+        updateCurrent()
+        AppLog.i("Audio", "Coda di ${tracks.size} brani, avvio da #$start (${tracks[start].title})")
+    }
+
+    /**
+     * Dopo una modifica dei tag: aggiorna i brani della coda (titolo, copertina nella notifica).
+     * Se il file del brano in riproduzione è stato riscritto, lo riapre alla stessa posizione.
+     */
+    fun replaceTracks(updated: Map<String, Track>, rewritten: Set<String>) {
+        if (queue.isEmpty()) return
+        val reload = currentTrack?.uri?.let { it in rewritten } == true
+        queue = queue.map { updated[it.uri] ?: it }
+        for (i in 0 until minOf(queue.size, player.mediaItemCount)) {
+            val t = updated[queue[i].uri] ?: continue
+            if (i != player.currentMediaItemIndex || !reload) runCatching { player.replaceMediaItem(i, toMediaItem(t)) }
+        }
+        if (reload) {
+            val idx = player.currentMediaItemIndex
+            val pos = player.currentPosition
+            val play = player.playWhenReady
+            val t = queue.getOrNull(idx)
+            if (t != null) runCatching { player.replaceMediaItem(idx, toMediaItem(t)) }
+            player.stop()
+            player.prepare()
+            player.seekTo(idx, pos)
+            player.playWhenReady = play
+        }
+        updateCurrent()
+    }
+
+    /** Salta a un brano della coda. */
+    fun playAt(index: Int) {
+        if (index !in 0 until player.mediaItemCount) return
+        controls.seekTo(index, 0L)
+        if (!player.isPlaying) controls.play()
+    }
+
+    fun togglePlayPause() {
+        if (player.mediaItemCount == 0) return
+        if (player.isPlaying && !controls.pausing) controls.pause() else {
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
+            controls.play()
+        }
+    }
+
+    fun next() {
+        if (player.mediaItemCount > 0) controls.seekToNext()
+    }
+
+    fun previous() {
+        if (player.mediaItemCount > 0) controls.seekToPrevious()
+    }
+
+    fun seekToFraction(frac: Float) {
+        val dur = player.duration
+        if (dur > 0) controls.seekTo((dur * frac.coerceIn(0f, 1f)).toLong())
+    }
+
+    fun toggleShuffle() {
+        player.shuffleModeEnabled = !player.shuffleModeEnabled
+    }
+
+    fun cycleRepeat() {
+        player.repeatMode = when (player.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+    }
+
+    fun changeVolume(delta: Float) {
+        val v = (settings.volume + delta).coerceIn(0f, 1f)
+        volume = v
+        settings.volume = v
+        controls.refreshVolume()
+    }
+
+    /** Volume multimediale del telefono come fattore lineare (0 dB = 1), per la loudness. */
+    private fun updateListenVolume() {
+        try {
+            val am = app.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+            val idx = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            val db = if (android.os.Build.VERSION.SDK_INT >= 28) {
+                am.getStreamVolumeDb(android.media.AudioManager.STREAM_MUSIC, idx, DEVICE_TYPE)
+            } else {
+                // stima: la scala di Android copre circa 60 dB
+                if (idx == 0) -60f else -60f * (1f - idx.toFloat() / max)
+            }
+            eqProcessor.listenVolume = if (db.isFinite()) Math.pow(10.0, db.coerceIn(-80f, 0f) / 20.0) else 1.0
+        } catch (_: Throwable) {
+            eqProcessor.listenVolume = 1.0
+        }
+    }
+
+    private val DEVICE_TYPE: Int get() = when (outputMonitor.kind) {
+        OutKind.Speaker -> android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+        OutKind.Wired -> android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+        OutKind.Bluetooth -> android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+        OutKind.Usb -> android.media.AudioDeviceInfo.TYPE_USB_HEADSET
+        OutKind.Hdmi -> android.media.AudioDeviceInfo.TYPE_HDMI
+        OutKind.Other -> android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+    }
+
+    /** True mentre il brano attuale, senza tag ReplayGain, viene analizzato. */
+    var scanningCurrent by mutableStateOf(false)
+        private set
+
+    private val scanExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "loudness").apply { priority = Thread.MIN_PRIORITY } }
+    private var scanCancel = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val scanQueued = HashSet<String>()
+
+    /** Analizza il brano attuale e il successivo (se mancano nella cache), in background. */
+    private fun planScans() {
+        if (settings.dsp.replayGain == ReplayGain.OFF) {
+            scanningCurrent = false
+            return
+        }
+        val idx = player.currentMediaItemIndex
+        val next = player.nextMediaItemIndex
+        scanningCurrent = false
+        for (i in listOf(idx, next)) {
+            val t = queue.getOrNull(i) ?: continue
+            if (settings.loudnessCache.get(t.uri) != null) continue
+            if (i == idx) scanningCurrent = true
+            if (!scanQueued.add(t.uri)) continue
+            val cancel = scanCancel
+            scanExecutor.execute {
+                val r = if (cancel.get()) null else LoudnessScanner.scan(app, t.uri, cancel)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    scanQueued.remove(t.uri)
+                    if (r != null) {
+                        settings.loudnessCache.put(t.uri, r)
+                        AppLog.i("Audio", "Loudness di ${t.title}: ${"%.1f".format(r.lufs)} LUFS, picco ${"%.3f".format(r.peak)}")
+                        if (currentTrack?.uri == t.uri) eqProcessor.scannedGain = LoudnessScanner.toInfo(r)
+                    } else if (!cancel.get()) {
+                        AppLog.w("Audio", "Loudness di ${t.title}: analisi non riuscita")
+                    }
+                    if (currentTrack?.uri == t.uri) scanningCurrent = false
+                }
+            }
+        }
+    }
+
+
+    // ------------------------------------------------------------------ volume digitale (DVC)
+
+    /** Alza o abbassa il volume digitale di 2 dB; false se il DVC è spento (allora decide Android). */
+    fun stepDvc(up: Boolean): Boolean {
+        val s = settings.dsp
+        if (!s.master || !s.dvc) return false
+        val v = (s.dvcDb + if (up) 2f else -2f).coerceIn(DspSettings.DVC_MIN_DB, 0f)
+        if (v != s.dvcDb) settings.updateDsp { it.copy(dvcDb = v) }
+        return true
+    }
+
+}
