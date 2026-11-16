@@ -15,10 +15,11 @@ enum class Overlay { None, Log, Analyzer, Output, Lyrics, Cover, Tags, BulkCover
 
 /** Sezioni della barra di navigazione in basso. */
 enum class Tab(val label: String) {
+    Home("Home"),
     Search("Cerca"),
     Library("Libreria"),
     NowPlaying("Lettore"),
-    Eq("Equalizzatore"),
+    Eq("EQ"),
     Settings("Impostazioni"),
 }
 
@@ -101,7 +102,7 @@ class AppEnv(val app: MLPlayerApp) {
 
     var actions: Actions? = null
 
-    var tab by mutableStateOf(Tab.Search)
+    var tab by mutableStateOf(Tab.Home)
     var overlay by mutableStateOf(Overlay.None)
 
     /** Pannello "Percorso del segnale" aperto (dalle informazioni sulla qualità nel lettore). */
@@ -244,6 +245,26 @@ class AppEnv(val app: MLPlayerApp) {
     fun startScan(rebuild: Boolean = false) {
         app.appScope.launch {
             library.rescan(settings.folders, rebuild)
+        }
+    }
+
+    /** Suona il brano subito e, appena pronta, accoda la radio di YouTube Music che segue. */
+    fun playWithRadio(item: com.marco.mlplayer.yt.Yt.Item) {
+        val seed = com.marco.mlplayer.yt.Yt.toTrack(item)
+        engine.playQueue(listOf(seed), 0)
+        openNowPlaying()
+        app.appScope.launch {
+            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { com.marco.mlplayer.yt.YtApi.radio(item.videoId) }
+            }
+            r.onSuccess { list ->
+                if (engine.currentTrack?.id != seed.id) return@onSuccess   // nel frattempo hai cambiato brano
+                list.filter { it.videoId != item.videoId }.forEach { engine.addToQueue(com.marco.mlplayer.yt.Yt.toTrack(it)) }
+                message = "Radio avviata: ${list.size - 1} brani in coda"
+            }.onFailure {
+                AppLog.e("YouTube", "Radio non riuscita", it)
+                message = "Radio non riuscita (dettagli nel log)"
+            }
         }
     }
 

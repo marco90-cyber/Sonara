@@ -110,6 +110,11 @@ fun TrackMenuSheet(env: AppEnv) {
         }
         HorizontalDivider(Modifier.padding(top = 16.dp, bottom = 4.dp), color = cs.outlineVariant)
         MenuEntry(Icons.Filled.Lyrics, "Testo", "Testo sincronizzato, fonti, traduzione") { env.openPage(Overlay.Lyrics) }
+        com.marco.mlplayer.yt.Yt.itemOf(t)?.let { yi ->
+            MenuEntry(Icons.Filled.MusicNote, "Avvia radio", "Brani simili a questo, da YouTube Music") {
+                env.showTrackMenu = false; env.playWithRadio(yi)
+            }
+        }
         if (!t.uri.startsWith("yt:")) {
             MenuEntry(Icons.Filled.Image, "Copertina", "Cerca su internet o scegli dalla galleria") { env.openPage(Overlay.Cover) }
             MenuEntry(Icons.Filled.Edit, "Modifica tag", "Titolo, artista, album, anno, genere…") { env.openPage(Overlay.Tags) }

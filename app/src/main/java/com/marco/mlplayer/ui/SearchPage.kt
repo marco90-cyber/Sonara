@@ -323,6 +323,7 @@ fun YtRow(env: AppEnv, item: Yt.Item, onClick: () -> Unit) {
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Altre azioni") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text("Avvia radio") }, onClick = { menu = false; env.playWithRadio(item) })
                 DropdownMenuItem(text = { Text("Riproduci dopo") }, onClick = {
                     menu = false; env.engine.playNext(Yt.toTrack(item)); env.message = "Aggiunto: riproduci dopo"
                 })

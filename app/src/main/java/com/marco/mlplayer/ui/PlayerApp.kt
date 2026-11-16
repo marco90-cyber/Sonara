@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Equalizer
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.outlined.Equalizer
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Search
@@ -76,6 +78,7 @@ import com.marco.mlplayer.data.rememberCover
 import kotlinx.coroutines.delay
 
 private fun Tab.icons(): Pair<ImageVector, ImageVector> = when (this) {
+    Tab.Home -> Icons.Filled.Home to Icons.Outlined.Home
     Tab.Search -> Icons.Filled.Search to Icons.Outlined.Search
     Tab.Library -> Icons.Filled.LibraryMusic to Icons.Outlined.LibraryMusic
     Tab.NowPlaying -> Icons.Filled.PlayCircle to Icons.Outlined.PlayCircle
@@ -132,6 +135,7 @@ fun PlayerApp(env: AppEnv) {
                     Box(Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize()) {
                         Crossfade(targetState = env.tab, animationSpec = tween(200), label = "sezione") { t ->
                             when (t) {
+                                Tab.Home -> HomePage(env)
                                 Tab.Search -> SearchPage(env)
                                 Tab.NowPlaying -> NowPlayingPage(env)
                                 Tab.Library -> LibraryPage(env)

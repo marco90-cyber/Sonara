@@ -82,6 +82,83 @@ object YtApi {
         return out
     }
 
+    // ------------------------------------------------------------------ home e radio
+
+    /** Una scheda della home: un brano da suonare oppure un album/playlist/artista da aprire. */
+    data class Card(val song: Yt.Item?, val entry: Yt.Entry?) {
+        val title get() = song?.title ?: entry?.title.orEmpty()
+        val subtitle get() = song?.artist ?: entry?.subtitle.orEmpty()
+        val thumb get() = song?.thumb ?: entry?.thumb.orEmpty()
+    }
+
+    data class Shelf(val title: String, val cards: List<Card>)
+
+    /** Home di YouTube Music: gli scaffali di suggerimenti (personalizzati se c'è l'account). */
+    fun home(): List<Shelf> {
+        val out = ArrayList<Shelf>()
+        var json = browse("FEmusic_home")
+        for (page in 0 until 3) {
+            for (sh in collect(json, "musicCarouselShelfRenderer")) parseShelf(sh)?.let { out.add(it) }
+            val next = nextToken(json) ?: break
+            json = browse(null, next)
+        }
+        AppLog.i(TAG, "Home: ${out.size} scaffali")
+        return out
+    }
+
+    private fun parseShelf(sh: JSONObject): Shelf? {
+        val title = runsText(collect(sh.optJSONObject("header"), "title").firstOrNull())
+        val arr = sh.optJSONArray("contents") ?: return null
+        val cards = ArrayList<Card>()
+        for (i in 0 until arr.length()) {
+            val c = arr.optJSONObject(i) ?: continue
+            c.optJSONObject("musicResponsiveListItemRenderer")?.let { r -> parseTrack(r)?.let { cards.add(Card(it, null)) } }
+            val t = c.optJSONObject("musicTwoRowItemRenderer") ?: continue
+            val nav = t.optJSONObject("navigationEndpoint")
+            val videoId = nav?.optJSONObject("watchEndpoint")?.optString("videoId").orEmpty()
+            val browseId = nav?.optJSONObject("browseEndpoint")?.optString("browseId").orEmpty()
+            val name = runsText(t.optJSONObject("title"))
+            val sub = runsText(t.optJSONObject("subtitle"))
+            val thumb = thumbOf(t.optJSONObject("thumbnailRenderer"))
+            if (name.isBlank()) continue
+            if (videoId.isNotBlank()) {
+                val parts = sub.split(" • ").map { it.trim() }.filter { it.isNotBlank() }
+                val artist = if (parts.size > 1 && parts[0].lowercase() in setOf("brano", "song", "video")) parts[1] else parts.firstOrNull().orEmpty()
+                cards.add(Card(Yt.Item(videoId, name, artist, 0, thumb), null))
+            } else {
+                val kind = when {
+                    browseId.startsWith("UC") -> Yt.Kind.Artists
+                    browseId.startsWith("MPRE") -> Yt.Kind.Albums
+                    browseId.startsWith("VL") -> Yt.Kind.Playlists
+                    else -> continue
+                }
+                cards.add(Card(null, Yt.Entry(kind, browseId, name, sub, thumb)))
+            }
+        }
+        return if (title.isBlank() || cards.isEmpty()) null else Shelf(title, cards)
+    }
+
+    /** Radio di un brano: i brani che YouTube Music propone di seguito (il primo è il brano stesso). */
+    fun radio(videoId: String): List<Yt.Item> {
+        val json = post("next", JSONObject()
+            .put("videoId", videoId)
+            .put("playlistId", "RDAMVM$videoId")
+            .put("isAudioOnly", true))
+        val out = ArrayList<Yt.Item>()
+        val seen = HashSet<String>()
+        for (o in collect(json, "playlistPanelVideoRenderer")) {
+            val id = o.optString("videoId").takeIf { it.isNotBlank() } ?: continue
+            if (!seen.add(id)) continue
+            val title = runsText(o.optJSONObject("title"))
+            val by = o.optJSONObject("longBylineText")?.optJSONArray("runs")
+            val artist = by?.optJSONObject(0)?.optString("text").orEmpty()
+            val dur = o.optJSONObject("lengthText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text").orEmpty()
+            out.add(Yt.Item(id, title, artist, parseDuration(dur), thumbOf(o.optJSONObject("thumbnail"))))
+        }
+        AppLog.i(TAG, "Radio da $videoId: ${out.size} brani")
+        return out
+    }
+
     private fun nextToken(json: JSONObject): String? =
         collect(json, "nextContinuationData").firstOrNull()?.optString("continuation")?.takeIf { it.isNotBlank() }
             ?: collect(json, "continuationCommand").firstOrNull()?.optString("token")?.takeIf { it.isNotBlank() }
