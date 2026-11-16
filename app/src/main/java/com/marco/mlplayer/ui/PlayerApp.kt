@@ -145,7 +145,7 @@ fun PlayerApp(env: AppEnv) {
                 }
 
                 // pagine sopra alle sezioni
-                for (o in listOf(Overlay.Analyzer, Overlay.Output, Overlay.Log, Overlay.Lyrics, Overlay.Cover, Overlay.Tags, Overlay.BulkCovers, Overlay.Login)) {
+                for (o in listOf(Overlay.Analyzer, Overlay.Output, Overlay.Log, Overlay.Lyrics, Overlay.Cover, Overlay.Tags, Overlay.Login)) {
                     AnimatedVisibility(
                         visible = env.overlay == o,
                         enter = slideInVertically(tween(260)) { it / 6 } + fadeIn(tween(200)),
@@ -159,7 +159,6 @@ fun PlayerApp(env: AppEnv) {
                                 Overlay.Lyrics -> LyricsPage(env)
                                 Overlay.Cover -> CoverPage(env)
                                 Overlay.Tags -> TagEditorPage(env)
-                                Overlay.BulkCovers -> BulkCoverPage(env)
                                 Overlay.Login -> LoginPage(env)
                                 Overlay.None -> {}
                             }
@@ -168,7 +167,6 @@ fun PlayerApp(env: AppEnv) {
                 }
 
                 if (env.showQueue) QueueSheet(env)
-                if (env.showScanDialog) ScanDialog(env)
                 if (env.showTrackMenu && env.engine.currentTrack != null) TrackMenuSheet(env)
 
                 // messaggi brevi (salvataggi, permessi)
