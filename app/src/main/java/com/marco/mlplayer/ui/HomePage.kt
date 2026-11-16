@@ -48,7 +48,6 @@ import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
-import com.marco.mlplayer.yt.YtAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,7 +57,6 @@ private object HomeUi {
     var shelves by mutableStateOf<List<YtApi.Shelf>?>(null)
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
-    var loadedWithAccount by mutableStateOf(false)
 }
 
 /** Home e ricerca nella stessa pagina: barra di ricerca in alto, sotto i suggerimenti di YouTube Music. */
@@ -80,7 +78,6 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             HomeUi.loading = false
             r.onSuccess {
                 HomeUi.shelves = it
-                HomeUi.loadedWithAccount = YtAuth.connected
                 if (it.isEmpty()) HomeUi.error = "YouTube Music non ha proposto nulla"
             }.onFailure {
                 AppLog.e("YouTube", "Caricamento home non riuscito", it)
@@ -88,10 +85,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             }
         }
     }
-    // al primo avvio, e di nuovo quando l'account cambia, per avere i suggerimenti giusti
-    LaunchedEffect(YtAuth.connected) {
-        if (!HomeUi.loading && (HomeUi.shelves == null || HomeUi.loadedWithAccount != YtAuth.connected)) load()
-    }
+    LaunchedEffect(Unit) { if (!HomeUi.loading && HomeUi.shelves == null) load() }
 
     val shelves = HomeUi.shelves
     val recent = env.app.ytStore.history.take(15)

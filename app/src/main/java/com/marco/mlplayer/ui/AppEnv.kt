@@ -11,7 +11,7 @@ import com.marco.mlplayer.util.AppLog
 import kotlinx.coroutines.launch
 
 /** Pagine a tutto schermo sopra alle sezioni (si chiudono con la freccia o il tasto indietro). */
-enum class Overlay { None, Log, Analyzer, Output, Lyrics, Cover, Tags, Login }
+enum class Overlay { None, Log, Analyzer, Output, Lyrics, Cover, Tags }
 
 /** Sezioni della barra di navigazione in basso. */
 enum class Tab(val label: String) {

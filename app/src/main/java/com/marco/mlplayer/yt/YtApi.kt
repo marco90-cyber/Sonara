@@ -38,8 +38,6 @@ object YtApi {
             .header("Referer", "$ORIGIN/")
             .header("X-Origin", ORIGIN)
             .header("Accept-Language", "it-IT,it;q=0.9")
-        YtAuth.authorization()?.let { b.header("Authorization", it) }
-        YtAuth.cookieHeader()?.let { b.header("Cookie", it); b.header("X-Goog-AuthUser", "0") }
         http.newCall(b.build()).execute().use { r ->
             val text = r.body?.string().orEmpty()
             if (!r.isSuccessful) {
@@ -54,19 +52,6 @@ object YtApi {
         post("browse", JSONObject().apply { if (browseId != null) put("browseId", browseId) }, continuation)
 
     // ------------------------------------------------------------------ account
-
-    /** Playlist della libreria dell'account (serve il login). */
-    fun libraryPlaylists(): List<Playlist> {
-        val out = ArrayList<Playlist>()
-        val json = browse("FEmusic_liked_playlists")
-        for (o in collect(json, "musicTwoRowItemRenderer")) {
-            val id = o.opt("navigationEndpoint").obj("browseEndpoint")?.optString("browseId").orEmpty()
-            if (!id.startsWith("VL")) continue
-            out.add(Playlist(id, runsText(o.optJSONObject("title")), runsText(o.optJSONObject("subtitle")), thumbOf(o.optJSONObject("thumbnailRenderer"))))
-        }
-        AppLog.i(TAG, "Playlist dell'account: ${out.size}")
-        return out
-    }
 
     /** Brani di una playlist (id "VL...", oppure "VLLM" per i brani che ti piacciono), fino a ~1500. */
     fun playlistTracks(browseId: String): List<Yt.Item> {

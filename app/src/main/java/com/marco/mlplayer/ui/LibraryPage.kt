@@ -56,7 +56,6 @@ import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
-import com.marco.mlplayer.yt.YtAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,24 +63,15 @@ import kotlinx.coroutines.withContext
 /** Stato della sezione Libreria: resta uguale cambiando sezione. */
 private object LibUi {
     var page by mutableIntStateOf(0)
-    var playlists by mutableStateOf<List<YtApi.Playlist>?>(null)
-    var loadingPlaylists by mutableStateOf(false)
-    var playlistError by mutableStateOf<String?>(null)
-    var open by mutableStateOf<YtApi.Playlist?>(null)
-    var openTracks by mutableStateOf<List<Yt.Item>?>(null)
-    var openError by mutableStateOf<String?>(null)
     /** Pagine aperte dai Salvati (artista -> album ...). */
     val trail = androidx.compose.runtime.mutableStateListOf<Yt.Entry>()
 }
 
-private val LIKED = YtApi.Playlist("VLLM", "Brani che ti piacciono", "Account YouTube Music", "")
-
-/** Libreria di Sonara: preferiti, cronologia e playlist dell'account. */
+/** Libreria di Sonara: preferiti, salvati e cronologia. */
 @Composable
 fun LibraryPage(env: AppEnv) {
     val cs = MaterialTheme.colorScheme
     val store = env.app.ytStore
-    BackHandler(enabled = LibUi.page == 2 && LibUi.open != null) { LibUi.open = null; LibUi.openTracks = null }
     BackHandler(enabled = LibUi.page == 3 && LibUi.trail.isNotEmpty()) { LibUi.trail.removeAt(LibUi.trail.lastIndex) }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
         Text("Libreria", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
@@ -89,11 +79,6 @@ fun LibraryPage(env: AppEnv) {
             FilterChip(selected = LibUi.page == 0, onClick = { LibUi.page = 0 }, label = { Text("Preferiti · ${store.favorites.size}") })
             FilterChip(selected = LibUi.page == 3, onClick = { LibUi.page = 3 }, label = { Text("Salvati · ${store.saved.size}") })
             FilterChip(selected = LibUi.page == 1, onClick = { LibUi.page = 1 }, label = { Text("Cronologia") })
-            FilterChip(selected = LibUi.page == 2, onClick = { LibUi.page = 2 }, label = { Text("Playlist") })
-        }
-        if (LibUi.page == 2) {
-            AccountSection(env)
-            return@Column
         }
         if (LibUi.page == 3) {
             SavedSection(env)
@@ -131,91 +116,6 @@ internal fun TrackList(env: AppEnv, items: List<Yt.Item>, showClear: Boolean = f
                 env.feedback.tapScreen()
                 env.playFrom(items.map { Yt.toTrack(it) }, index)
             }
-        }
-    }
-}
-
-@Composable
-private fun AccountSection(env: AppEnv) {
-    val cs = MaterialTheme.colorScheme
-    if (!YtAuth.connected) {
-        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Accedi con Google per vedere le tue playlist e i brani che ti piacciono su YouTube Music.",
-                color = cs.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
-            Button(onClick = { env.openPage(Overlay.Login) }) { Text("Accedi con Google") }
-        }
-        return
-    }
-
-    fun loadPlaylists() {
-        LibUi.loadingPlaylists = true
-        LibUi.playlistError = null
-        env.app.appScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { YtApi.libraryPlaylists() } }
-            LibUi.loadingPlaylists = false
-            r.onSuccess { LibUi.playlists = it }.onFailure {
-                AppLog.e("YouTube", "Caricamento playlist non riuscito", it)
-                LibUi.playlistError = "Non riesco a leggere le playlist. Riprova o esci e accedi di nuovo (dettagli nel log)."
-            }
-        }
-    }
-    fun openPlaylist(p: YtApi.Playlist) {
-        LibUi.open = p
-        LibUi.openTracks = null
-        LibUi.openError = null
-        env.app.appScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { YtApi.playlistTracks(p.browseId) } }
-            r.onSuccess { LibUi.openTracks = it }.onFailure {
-                AppLog.e("YouTube", "Caricamento di ${p.title} non riuscito", it)
-                LibUi.openError = "Non riesco a leggere questa playlist (dettagli nel log)."
-            }
-        }
-    }
-    LaunchedEffect(YtAuth.connected) { if (LibUi.playlists == null && !LibUi.loadingPlaylists) loadPlaylists() }
-
-    val open = LibUi.open
-    if (open != null) {
-        CollectionState(env, open.title, open.subtitle, open.thumb, LibUi.openTracks, LibUi.openError, onBack = { LibUi.open = null; LibUi.openTracks = null })
-        return
-    }
-
-    val list = LibUi.playlists
-    when {
-        LibUi.loadingPlaylists && list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        LibUi.playlistError != null && list == null -> Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(LibUi.playlistError!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
-            Button(onClick = { loadPlaylists() }) { Text("Riprova") }
-        }
-        else -> LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp)) {
-            item { PlaylistRow(LIKED) { openPlaylist(LIKED) } }
-            items(list.orEmpty(), key = { it.browseId }) { p -> PlaylistRow(p) { openPlaylist(p) } }
-            item {
-                Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { LibUi.playlists = null; loadPlaylists() }) { Text("Aggiorna") }
-                    OutlinedButton(onClick = {
-                        YtAuth.signOut(); LibUi.playlists = null; LibUi.open = null; env.message = "Account scollegato"
-                    }) { Text("Esci dall'account") }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlaylistRow(p: YtApi.Playlist, onClick: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
-            Icon(if (p.browseId == "VLLM") Icons.Filled.Favorite else Icons.Filled.QueueMusic, null, tint = cs.onPrimaryContainer)
-            if (p.thumb.isNotBlank()) AsyncImage(p.thumb, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(p.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (p.subtitle.isNotBlank()) Text(p.subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
