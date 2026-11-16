@@ -3,7 +3,9 @@ package com.marco.mlplayer.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +23,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
@@ -65,6 +69,8 @@ private object LibUi {
     var open by mutableStateOf<YtApi.Playlist?>(null)
     var openTracks by mutableStateOf<List<Yt.Item>?>(null)
     var openError by mutableStateOf<String?>(null)
+    /** Pagine aperte dai Salvati (artista -> album ...). */
+    val trail = androidx.compose.runtime.mutableStateListOf<Yt.Entry>()
 }
 
 private val LIKED = YtApi.Playlist("VLLM", "Brani che ti piacciono", "Account YouTube Music", "")
@@ -75,15 +81,21 @@ fun LibraryPage(env: AppEnv) {
     val cs = MaterialTheme.colorScheme
     val store = env.app.ytStore
     BackHandler(enabled = LibUi.page == 2 && LibUi.open != null) { LibUi.open = null; LibUi.openTracks = null }
+    BackHandler(enabled = LibUi.page == 3 && LibUi.trail.isNotEmpty()) { LibUi.trail.removeAt(LibUi.trail.lastIndex) }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
         Text("Libreria", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = LibUi.page == 0, onClick = { LibUi.page = 0 }, label = { Text("Preferiti · ${store.favorites.size}") })
+            FilterChip(selected = LibUi.page == 3, onClick = { LibUi.page = 3 }, label = { Text("Salvati · ${store.saved.size}") })
             FilterChip(selected = LibUi.page == 1, onClick = { LibUi.page = 1 }, label = { Text("Cronologia") })
             FilterChip(selected = LibUi.page == 2, onClick = { LibUi.page = 2 }, label = { Text("Playlist") })
         }
         if (LibUi.page == 2) {
             AccountSection(env)
+            return@Column
+        }
+        if (LibUi.page == 3) {
+            SavedSection(env)
             return@Column
         }
         val items = if (LibUi.page == 0) store.favorites else store.history
@@ -220,6 +232,7 @@ internal fun CollectionState(
     shelves: List<YtApi.Shelf> = emptyList(),
     onOpen: (Yt.Entry) -> Unit = {},
     circle: Boolean = false,
+    bookmark: Yt.Entry? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     when {
@@ -235,7 +248,7 @@ internal fun CollectionState(
             BackRow(title, onBack)
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nessun brano", color = cs.onSurfaceVariant) }
         }
-        else -> CollectionView(env, title, subtitle, thumb, tracks, onBack, shelves, onOpen, circle)
+        else -> CollectionView(env, title, subtitle, thumb, tracks, onBack, shelves, onOpen, circle, bookmark)
     }
 }
 
@@ -250,7 +263,7 @@ private fun BackRow(title: String, onBack: () -> Unit) {
 @Composable
 private fun CollectionView(
     env: AppEnv, title: String, subtitle: String, thumb: String, tracks: List<Yt.Item>, onBack: () -> Unit,
-    shelves: List<YtApi.Shelf>, onOpen: (Yt.Entry) -> Unit, circle: Boolean,
+    shelves: List<YtApi.Shelf>, onOpen: (Yt.Entry) -> Unit, circle: Boolean, bookmark: Yt.Entry?,
 ) {
     val cs = MaterialTheme.colorScheme
     val cover = thumb.ifBlank { tracks.firstOrNull()?.cover.orEmpty() }
@@ -264,7 +277,25 @@ private fun CollectionView(
         }
     }
     LazyColumn(Modifier.fillMaxSize()) {
-        item { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro") } }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro") }
+                Spacer(Modifier.weight(1f))
+                if (bookmark != null) {
+                    val saved = env.app.ytStore.isSaved(bookmark.browseId)
+                    IconButton(onClick = {
+                        val now = env.app.ytStore.toggleSaved(bookmark)
+                        env.message = if (now) "Salvato nella libreria" else "Tolto dalla libreria"
+                    }) {
+                        Icon(
+                            if (saved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                            contentDescription = if (saved) "Togli dalla libreria" else "Salva nella libreria",
+                            tint = if (saved) cs.primary else cs.onSurface,
+                        )
+                    }
+                }
+            }
+        }
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
@@ -299,5 +330,39 @@ private fun CollectionView(
         }
         // album, singoli e altro dell'artista
         items(shelves, key = { "shelf_" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, onOpen) }
+    }
+}
+
+/** Playlist, album e artisti salvati con il segnalibro. */
+@Composable
+private fun SavedSection(env: AppEnv) {
+    val cs = MaterialTheme.colorScheme
+    val saved = env.app.ytStore.saved
+    val top = LibUi.trail.lastOrNull()
+    if (top != null) {
+        val d = YtUi.details[top.browseId]
+        CollectionState(
+            env, top.title, top.subtitle, top.thumb, d?.tracks, YtUi.errors[top.browseId],
+            onBack = { LibUi.trail.removeAt(LibUi.trail.lastIndex) },
+            shelves = d?.shelves.orEmpty(),
+            onOpen = { openYtEntry(env, it, LibUi.trail) },
+            circle = top.kind == Yt.Kind.Artists,
+            bookmark = top,
+        )
+        return
+    }
+    if (saved.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Niente di salvato: usa il segnalibro nella pagina di una playlist, un album o un artista", color = cs.onSurfaceVariant,
+                modifier = Modifier.padding(24.dp))
+        }
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp)) {
+        items(saved, key = { it.browseId }) { e ->
+            EntryRow(e.copy(subtitle = listOf(e.kind.label, e.subtitle).filter { it.isNotBlank() }.distinct().joinToString(" · "))) {
+                env.feedback.tapScreen(); openYtEntry(env, e, LibUi.trail)
+            }
+        }
     }
 }

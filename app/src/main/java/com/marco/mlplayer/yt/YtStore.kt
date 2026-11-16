@@ -20,6 +20,9 @@ class YtStore(context: Context) {
         private set
     var searches by mutableStateOf(emptyList<String>())
         private set
+    /** Playlist, album e artisti salvati con il segnalibro (i più recenti in alto). */
+    var saved by mutableStateOf(emptyList<Yt.Entry>())
+        private set
 
     init {
         runCatching {
@@ -27,9 +30,27 @@ class YtStore(context: Context) {
                 val o = JSONObject(file.readText())
                 favorites = items(o.optJSONArray("favorites"))
                 history = items(o.optJSONArray("history"))
+                saved = o.optJSONArray("saved")?.let { a ->
+                    (0 until a.length()).mapNotNull {
+                        val e = a.optJSONObject(it) ?: return@mapNotNull null
+                        val kind = runCatching { Yt.Kind.valueOf(e.optString("kind")) }.getOrNull() ?: return@mapNotNull null
+                        val id = e.optString("id")
+                        if (id.isBlank()) null else Yt.Entry(kind, id, e.optString("title"), e.optString("sub"), e.optString("thumb"))
+                    }
+                } ?: emptyList()
                 searches = o.optJSONArray("searches")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
             }
         }.onFailure { AppLog.e("YouTube", "Lettura preferiti non riuscita", it) }
+    }
+
+    fun isSaved(browseId: String) = saved.any { it.browseId == browseId }
+
+    /** Salva o toglie dalla libreria una playlist, un album o un artista. */
+    fun toggleSaved(e: Yt.Entry): Boolean {
+        val now = !isSaved(e.browseId)
+        saved = if (now) listOf(e) + saved else saved.filter { it.browseId != e.browseId }
+        save()
+        return now
     }
 
     fun isFavorite(videoId: String) = favorites.any { it.videoId == videoId }
@@ -84,6 +105,11 @@ class YtStore(context: Context) {
             .put("favorites", arr(favorites))
             .put("history", arr(history))
             .put("searches", JSONArray(searches))
+            .put("saved", JSONArray().apply {
+                saved.forEach {
+                    put(JSONObject().put("kind", it.kind.name).put("id", it.browseId).put("title", it.title).put("sub", it.subtitle).put("thumb", it.thumb))
+                }
+            })
             .toString()
         Thread {
             synchronized(lock) { runCatching { file.writeText(json) }.onFailure { AppLog.e("YouTube", "Salvataggio non riuscito", it) } }

@@ -93,8 +93,8 @@ object YtUi {
 }
 
 /** Apre un artista, album o playlist sopra la pagina attuale (con il suo elenco di brani). */
-fun openYtEntry(env: AppEnv, e: Yt.Entry) {
-    YtUi.trail.add(e)
+fun openYtEntry(env: AppEnv, e: Yt.Entry, trail: MutableList<Yt.Entry> = YtUi.trail) {
+    trail.add(e)
     if (YtUi.details.containsKey(e.browseId)) return
     YtUi.errors.remove(e.browseId)
     env.app.appScope.launch {
@@ -207,6 +207,7 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
                     shelves = d?.shelves.orEmpty(),
                     onOpen = { openYtEntry(env, it) },
                     circle = open.kind == Yt.Kind.Artists,
+                    bookmark = open,
                 )
             }
             YtUi.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -265,7 +266,7 @@ private fun TopSong(env: AppEnv, songs: List<Yt.Item>) {
 
 /** Riga di un artista, album o playlist: tocca per aprirlo. */
 @Composable
-private fun EntryRow(e: Yt.Entry, onClick: () -> Unit) {
+internal fun EntryRow(e: Yt.Entry, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val shape = if (e.kind == Yt.Kind.Artists) CircleShape else RoundedCornerShape(10.dp)
     Row(
