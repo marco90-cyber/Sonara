@@ -134,7 +134,7 @@ fun PlayerApp(env: AppEnv) {
                             when (t) {
                                 Tab.Search -> SearchPage(env)
                                 Tab.NowPlaying -> NowPlayingPage(env)
-                                Tab.Library -> MenuPage(env, env.libraryNav)
+                                Tab.Library -> LibraryPage(env)
                                 Tab.Eq -> EqualizerScreen(env)
                                 Tab.Settings -> MenuPage(env, env.settingsNav)
                             }

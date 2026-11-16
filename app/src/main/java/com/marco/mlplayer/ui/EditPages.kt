@@ -110,8 +110,10 @@ fun TrackMenuSheet(env: AppEnv) {
         }
         HorizontalDivider(Modifier.padding(top = 16.dp, bottom = 4.dp), color = cs.outlineVariant)
         MenuEntry(Icons.Filled.Lyrics, "Testo", "Testo sincronizzato, fonti, traduzione") { env.openPage(Overlay.Lyrics) }
-        MenuEntry(Icons.Filled.Image, "Copertina", "Cerca su internet o scegli dalla galleria") { env.openPage(Overlay.Cover) }
-        MenuEntry(Icons.Filled.Edit, "Modifica tag", "Titolo, artista, album, anno, genere…") { env.openPage(Overlay.Tags) }
+        if (!t.uri.startsWith("yt:")) {
+            MenuEntry(Icons.Filled.Image, "Copertina", "Cerca su internet o scegli dalla galleria") { env.openPage(Overlay.Cover) }
+            MenuEntry(Icons.Filled.Edit, "Modifica tag", "Titolo, artista, album, anno, genere…") { env.openPage(Overlay.Tags) }
+        }
         Spacer(Modifier.height(24.dp))
     }
 }

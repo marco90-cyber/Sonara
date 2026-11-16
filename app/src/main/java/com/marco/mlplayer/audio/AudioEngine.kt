@@ -298,6 +298,7 @@ class AudioEngine(
         }
         queueIndex = idx
         queueSize = queue.size
+        if (t != null && t.uri != prevUri) Yt.itemOf(t)?.let { (app as com.marco.mlplayer.MLPlayerApp).ytStore.addHistory(it) }
         if (t != null && t.coverUrl.isNotBlank() && library.trackCoverFile(t) == null && coverTried.add(t.id)) {
             // miniatura del brano online: la scarico una volta e la tengo come copertina del brano
             scanExecutor.execute {
@@ -336,6 +337,24 @@ class AudioEngine(
             .setUri(t.uri)
             .setMediaMetadata(meta.build())
             .build()
+    }
+
+    /** Mette il brano subito dopo quello in riproduzione (se la coda è vuota, lo fa partire). */
+    fun playNext(t: Track) = insertInQueue(t, player.currentMediaItemIndex + 1)
+
+    /** Mette il brano in fondo alla coda (se la coda è vuota, lo fa partire). */
+    fun addToQueue(t: Track) = insertInQueue(t, queue.size)
+
+    private fun insertInQueue(t: Track, at: Int) {
+        if (queue.isEmpty() || player.mediaItemCount == 0) {
+            playQueue(listOf(t), 0)
+            return
+        }
+        val i = at.coerceIn(0, queue.size)
+        queue = queue.toMutableList().apply { add(i, t) }
+        player.addMediaItem(i, toMediaItem(t))
+        updateCurrent()
+        AppLog.i("Audio", "Aggiunto alla coda (#$i): ${t.title}")
     }
 
     fun playQueue(tracks: List<Track>, startIndex: Int, shuffle: Boolean = false) {

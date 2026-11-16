@@ -110,6 +110,12 @@ object Yt {
         runCatching { YoutubeJavaScriptPlayerManager.clearAllCaches() }
     }
 
+    /** L'elemento YouTube di un brano in coda (solo per i brani "yt:<id>"). */
+    fun itemOf(t: Track): Item? {
+        if (!t.uri.startsWith("yt:")) return null
+        return Item(t.uri.removePrefix("yt:"), t.title, t.artist, t.durationMs / 1000, t.coverUrl)
+    }
+
     fun toTrack(i: Item) = Track(
         id = "yt_${i.videoId}",
         uri = "yt:${i.videoId}",

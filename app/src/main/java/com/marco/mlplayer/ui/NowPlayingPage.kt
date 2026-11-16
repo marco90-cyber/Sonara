@@ -27,6 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MusicNote
@@ -74,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import com.marco.mlplayer.audio.direct.Route
 import com.marco.mlplayer.data.Track
 import com.marco.mlplayer.data.rememberCover
+import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.util.khz
 import com.marco.mlplayer.util.mmss
 import kotlinx.coroutines.delay
@@ -178,6 +181,17 @@ fun NowPlayingPage(env: AppEnv) {
                         val chip = IconButtonDefaults.filledTonalIconButtonColors(
                             containerColor = cs.surfaceContainerHighest.copy(alpha = 0.85f), contentColor = cs.onSurface
                         )
+                        val yi = Yt.itemOf(t)
+                        if (yi != null) {
+                            val fav = env.app.ytStore.isFavorite(yi.videoId)
+                            FilledTonalIconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleFavorite(yi) }, colors = chip) {
+                                Icon(
+                                    if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                    contentDescription = if (fav) "Togli dai preferiti" else "Aggiungi ai preferiti",
+                                    tint = if (fav) cs.primary else cs.onSurface,
+                                )
+                            }
+                        }
                         FilledTonalIconButton(onClick = { fb.tapScreen(); env.openPage(Overlay.Lyrics) }, colors = chip) {
                             Icon(Icons.Filled.Lyrics, contentDescription = "Testo")
                         }

@@ -24,6 +24,8 @@ class MLPlayerApp : Application() {
         private set
     lateinit var feedback: Feedback
         private set
+    lateinit var ytStore: com.marco.mlplayer.yt.YtStore
+        private set
 
     /** Stato dell'interfaccia: sopravvive alla ricreazione dell'Activity. */
     val env: AppEnv by lazy { AppEnv(this) }
@@ -34,6 +36,7 @@ class MLPlayerApp : Application() {
         settings = Settings(this)
         AppLog.verbose = settings.verboseLog
         library = Library(this)
+        ytStore = com.marco.mlplayer.yt.YtStore(this)
         feedback = Feedback(this, settings)
         engine = AudioEngine(this, settings, library)
         engine.connectService()
