@@ -7,10 +7,12 @@ import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.localization.ContentCountry
+import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
@@ -64,6 +66,45 @@ object Yt {
         ex.fetchPage()
         val out = ex.initialPage.items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toItem() }
         AppLog.i(TAG, "Ricerca \"$query\": ${out.size} brani")
+        return out
+    }
+
+    enum class Kind(val label: String) { Songs("Brani"), Artists("Artisti"), Albums("Album"), Playlists("Playlist") }
+
+    /** Un risultato che non è un brano: artista, album o playlist (si apre per vederne i brani). */
+    data class Entry(val kind: Kind, val browseId: String, val title: String, val subtitle: String, val thumb: String)
+
+    /** Cerca artisti, album o playlist su YouTube Music. Da chiamare fuori dal thread principale. */
+    fun searchEntries(query: String, kind: Kind): List<Entry> {
+        init()
+        val filter = when (kind) {
+            Kind.Artists -> YoutubeSearchQueryHandlerFactory.MUSIC_ARTISTS
+            Kind.Albums -> YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS
+            Kind.Playlists -> YoutubeSearchQueryHandlerFactory.MUSIC_PLAYLISTS
+            Kind.Songs -> YoutubeSearchQueryHandlerFactory.MUSIC_SONGS
+        }
+        val ex = ServiceList.YouTube.getSearchExtractor(query, listOf(filter), "")
+        ex.fetchPage()
+        val out = ArrayList<Entry>()
+        for (it in ex.initialPage.items) {
+            val thumb = it.thumbnails.maxByOrNull { t -> t.height * t.width }?.url.orEmpty()
+            when (it) {
+                is PlaylistInfoItem -> {
+                    val list = Regex("[?&]list=([A-Za-z0-9_-]+)").find(it.url)?.groupValues?.get(1) ?: continue
+                    val sub = listOfNotNull(
+                        it.uploaderName?.takeIf { u -> u.isNotBlank() },
+                        it.streamCount.takeIf { n -> n > 0 }?.let { n -> "$n brani" },
+                    ).joinToString(" · ")
+                    out.add(Entry(kind, if (list.startsWith("VL")) list else "VL$list", it.name.orEmpty(), sub, thumb))
+                }
+                is ChannelInfoItem -> {
+                    val id = Regex("/channel/([A-Za-z0-9_-]+)").find(it.url)?.groupValues?.get(1) ?: continue
+                    out.add(Entry(kind, id, it.name.orEmpty(), "Artista", thumb))
+                }
+                else -> {}
+            }
+        }
+        AppLog.i(TAG, "Ricerca ${kind.label} \"$query\": ${out.size} risultati")
         return out
     }
 

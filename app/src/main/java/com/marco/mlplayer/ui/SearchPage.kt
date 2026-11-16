@@ -1,6 +1,10 @@
 package com.marco.mlplayer.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,10 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,10 +30,15 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,12 +54,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.Yt
+import com.marco.mlplayer.yt.YtApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,35 +69,76 @@ import kotlinx.coroutines.withContext
 /** Stato della ricerca YouTube Music: resta uguale cambiando sezione. */
 object YtUi {
     var query by mutableStateOf("")
-    var results by mutableStateOf<List<Yt.Item>>(emptyList())
+    var kind by mutableStateOf(Yt.Kind.Songs)
+    /** Ultima ricerca eseguita (i risultati dei filtri si riferiscono a questa). */
+    var searched by mutableStateOf("")
+    var songs by mutableStateOf<List<Yt.Item>?>(null)
+    var entries by mutableStateOf<Map<Yt.Kind, List<Yt.Entry>>>(emptyMap())
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+
+    /** Album, playlist o artista aperto, con i suoi brani. */
+    var open by mutableStateOf<Yt.Entry?>(null)
+    var openTracks by mutableStateOf<List<Yt.Item>?>(null)
+    var openError by mutableStateOf<String?>(null)
+
+    fun reset() {
+        query = ""; searched = ""; songs = null; entries = emptyMap(); error = null; open = null; openTracks = null
+    }
 }
 
 private fun fmt(sec: Long): String = "%d:%02d".format(sec / 60, sec % 60)
 
-/** Sezione "Cerca": cerca brani su YouTube Music e li suona con il player di Sonara. */
+/** Sezione "Cerca": brani, artisti, album e playlist di YouTube Music, suonati dal player di Sonara. */
 @Composable
 fun SearchPage(env: AppEnv) {
     val cs = MaterialTheme.colorScheme
     val focus = LocalFocusManager.current
+
+    BackHandler(enabled = YtUi.open != null) { YtUi.open = null; YtUi.openTracks = null }
+
+    /** Carica i risultati del filtro attuale per [q] (se non ci sono già). */
+    fun load(q: String, kind: Yt.Kind) {
+        val have = if (kind == Yt.Kind.Songs) YtUi.songs != null else YtUi.entries[kind] != null
+        if (have && YtUi.searched == q) return
+        YtUi.loading = true
+        YtUi.error = null
+        env.app.appScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching { if (kind == Yt.Kind.Songs) Yt.search(q) to emptyList() else emptyList<Yt.Item>() to Yt.searchEntries(q, kind) }
+            }
+            YtUi.loading = false
+            r.onSuccess { (songs, ents) ->
+                if (YtUi.searched != q) return@onSuccess
+                if (kind == Yt.Kind.Songs) YtUi.songs = songs else YtUi.entries = YtUi.entries + (kind to ents)
+                if ((if (kind == Yt.Kind.Songs) songs.isEmpty() else ents.isEmpty())) YtUi.error = "Nessun risultato"
+            }.onFailure {
+                AppLog.e("YouTube", "Ricerca non riuscita", it)
+                YtUi.error = "Ricerca non riuscita. Controlla la connessione (dettagli nel log)."
+            }
+        }
+    }
 
     fun run() {
         val q = YtUi.query.trim()
         if (q.isEmpty()) return
         focus.clearFocus()
         env.app.ytStore.addSearch(q)
-        YtUi.loading = true
-        YtUi.error = null
+        if (YtUi.searched != q) {
+            YtUi.searched = q; YtUi.songs = null; YtUi.entries = emptyMap(); YtUi.open = null; YtUi.openTracks = null
+        }
+        load(q, YtUi.kind)
+    }
+
+    fun openEntry(e: Yt.Entry) {
+        YtUi.open = e
+        YtUi.openTracks = null
+        YtUi.openError = null
         env.app.appScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { Yt.search(q) } }
-            YtUi.loading = false
-            r.onSuccess {
-                YtUi.results = it
-                if (it.isEmpty()) YtUi.error = "Nessun risultato"
-            }.onFailure {
-                AppLog.e("YouTube", "Ricerca non riuscita", it)
-                YtUi.error = "Ricerca non riuscita. Controlla la connessione (dettagli nel log)."
+            val r = withContext(Dispatchers.IO) { runCatching { YtApi.playlistTracks(e.browseId) } }
+            r.onSuccess { YtUi.openTracks = it }.onFailure {
+                AppLog.e("YouTube", "Apertura di ${e.title} non riuscita", it)
+                YtUi.openError = "Non riesco ad aprire questo elemento (dettagli nel log)."
             }
         }
     }
@@ -96,25 +149,48 @@ fun SearchPage(env: AppEnv) {
             onValueChange = { YtUi.query = it },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
             singleLine = true,
-            placeholder = { Text("Cerca brani su YouTube Music") },
+            placeholder = { Text("Cerca su YouTube Music") },
             leadingIcon = { Icon(Icons.Filled.Search, null) },
             trailingIcon = {
                 if (YtUi.query.isNotEmpty()) {
-                    IconButton(onClick = { YtUi.query = ""; YtUi.results = emptyList(); YtUi.error = null }) {
-                        Icon(Icons.Filled.Clear, contentDescription = "Cancella")
-                    }
+                    IconButton(onClick = { YtUi.reset() }) { Icon(Icons.Filled.Clear, contentDescription = "Cancella") }
                 }
             },
             shape = RoundedCornerShape(28.dp),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { run() }),
         )
-        when {
-            YtUi.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            YtUi.error != null && YtUi.results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(YtUi.error!!, color = cs.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (k in Yt.Kind.entries) {
+                FilterChip(
+                    selected = YtUi.kind == k,
+                    onClick = {
+                        YtUi.kind = k
+                        YtUi.open = null; YtUi.openTracks = null
+                        if (YtUi.searched.isNotEmpty()) load(YtUi.searched, k)
+                    },
+                    label = { Text(k.label) },
+                )
             }
-            YtUi.results.isEmpty() -> {
+        }
+
+        val open = YtUi.open
+        val songs = YtUi.songs
+        val ents = YtUi.entries[YtUi.kind]
+        when {
+            open != null -> {
+                Text(open.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(vertical = 4.dp))
+                val tracks = YtUi.openTracks
+                when {
+                    YtUi.openError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(YtUi.openError!!, color = cs.onSurfaceVariant) }
+                    tracks == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nessun brano", color = cs.onSurfaceVariant) }
+                    else -> TrackList(env, tracks)
+                }
+            }
+            YtUi.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            YtUi.searched.isEmpty() -> {
                 val past = env.app.ytStore.searches
                 LazyColumn(Modifier.fillMaxSize()) {
                     if (past.isNotEmpty()) {
@@ -136,18 +212,78 @@ fun SearchPage(env: AppEnv) {
                     }
                 }
             }
-            else -> LazyColumn(Modifier.fillMaxSize()) {
-                itemsIndexed(YtUi.results, key = { _, it -> it.videoId }) { index, item ->
+            YtUi.kind == Yt.Kind.Songs && songs != null && songs.isNotEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                // il primo risultato in evidenza, come nella ricerca di YouTube Music
+                item { TopSong(env, songs) }
+                itemsIndexed(songs.drop(1), key = { _, it -> it.videoId }) { index, item ->
                     YtRow(env, item) {
                         env.feedback.tapScreen()
-                        env.playFrom(YtUi.results.map { Yt.toTrack(it) }, index)
+                        env.playFrom(songs.map { Yt.toTrack(it) }, index + 1)
                     }
                 }
+            }
+            YtUi.kind != Yt.Kind.Songs && !ents.isNullOrEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                items(ents, key = { it.browseId }) { e -> EntryRow(e) { env.feedback.tapScreen(); openEntry(e) } }
+            }
+            else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(YtUi.error ?: "Nessun risultato", color = cs.onSurfaceVariant)
             }
         }
     }
 }
 
+/** Scheda del primo brano trovato, con il pulsante per farlo partire. */
+@Composable
+private fun TopSong(env: AppEnv, songs: List<Yt.Item>) {
+    val cs = MaterialTheme.colorScheme
+    val top = songs.first()
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            .clip(RoundedCornerShape(28.dp)).background(cs.surfaceContainerHigh)
+            .clickable { env.feedback.tapScreen(); env.playFrom(songs.map { Yt.toTrack(it) }, 0) }
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(72.dp).clip(RoundedCornerShape(14.dp)).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.MusicNote, null, tint = cs.onPrimaryContainer)
+            if (top.thumb.isNotBlank()) AsyncImage(top.thumb, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "TOP SONG", style = MaterialTheme.typography.labelMedium, color = cs.primary, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(cs.primaryContainer.copy(alpha = 0.6f)).padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+            Text(top.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp))
+            Text(top.artist, style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        FilledIconButton(onClick = { env.feedback.tapScreen(); env.playFrom(songs.map { Yt.toTrack(it) }, 0) }, modifier = Modifier.size(52.dp)) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = "Riproduci")
+        }
+    }
+}
+
+/** Riga di un artista, album o playlist: tocca per aprirlo. */
+@Composable
+private fun EntryRow(e: Yt.Entry, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val shape = if (e.kind == Yt.Kind.Artists) CircleShape else RoundedCornerShape(10.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(56.dp).clip(shape).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
+            Icon(if (e.kind == Yt.Kind.Artists) Icons.Filled.Person else Icons.Filled.QueueMusic, null, tint = cs.onPrimaryContainer)
+            if (e.thumb.isNotBlank()) AsyncImage(e.thumb, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(e.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (e.subtitle.isNotBlank()) Text(e.subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
 
 /** Riga di un brano YouTube: tocca per suonare; il menu ⋮ ha coda e preferiti. */
 @Composable

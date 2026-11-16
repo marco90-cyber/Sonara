@@ -98,7 +98,7 @@ fun LibraryPage(env: AppEnv) {
 
 /** Pulsanti Riproduci/Casuale e l'elenco di brani. */
 @Composable
-private fun TrackList(env: AppEnv, items: List<Yt.Item>, showClear: Boolean = false) {
+internal fun TrackList(env: AppEnv, items: List<Yt.Item>, showClear: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilledTonalButton(onClick = { env.playFrom(items.map { Yt.toTrack(it) }, 0) }) {
             Icon(Icons.Filled.PlayArrow, null); Text("Riproduci")
