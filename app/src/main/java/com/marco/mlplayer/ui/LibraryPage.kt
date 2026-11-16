@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
@@ -28,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -41,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -158,14 +161,7 @@ private fun AccountSection(env: AppEnv) {
 
     val open = LibUi.open
     if (open != null) {
-        Text(open.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        val tracks = LibUi.openTracks
-        when {
-            LibUi.openError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(LibUi.openError!!, color = cs.onSurfaceVariant) }
-            tracks == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Playlist vuota", color = cs.onSurfaceVariant) }
-            else -> TrackList(env, tracks)
-        }
+        CollectionState(env, open.title, open.subtitle, open.thumb, LibUi.openTracks, LibUi.openError) { LibUi.open = null; LibUi.openTracks = null }
         return
     }
 
@@ -206,6 +202,93 @@ private fun PlaylistRow(p: YtApi.Playlist, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(p.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (p.subtitle.isNotBlank()) Text(p.subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Pagina di una raccolta (playlist, album, artista): indietro, copertina, titolo, pulsanti e lista dei brani. */
+@Composable
+internal fun CollectionState(
+    env: AppEnv,
+    title: String,
+    subtitle: String,
+    thumb: String,
+    tracks: List<Yt.Item>?,
+    error: String?,
+    onBack: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    when {
+        error != null -> Column(Modifier.fillMaxSize()) {
+            BackRow(title, onBack)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(error, color = cs.onSurfaceVariant) }
+        }
+        tracks == null -> Column(Modifier.fillMaxSize()) {
+            BackRow(title, onBack)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        }
+        tracks.isEmpty() -> Column(Modifier.fillMaxSize()) {
+            BackRow(title, onBack)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nessun brano", color = cs.onSurfaceVariant) }
+        }
+        else -> CollectionView(env, title, subtitle, thumb, tracks, onBack)
+    }
+}
+
+@Composable
+private fun BackRow(title: String, onBack: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro") }
+        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun CollectionView(env: AppEnv, title: String, subtitle: String, thumb: String, tracks: List<Yt.Item>, onBack: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val cover = thumb.ifBlank { tracks.firstOrNull()?.cover.orEmpty() }
+    val totalSec = tracks.sumOf { it.durationSec }
+    val info = buildString {
+        append("${tracks.size} brani")
+        if (totalSec > 0) {
+            val m = totalSec / 60
+            append(" · ")
+            append(if (m >= 60) "${m / 60} h ${m % 60} min" else "$m min")
+        }
+    }
+    LazyColumn(Modifier.fillMaxSize()) {
+        item { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro") } }
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    Modifier.size(200.dp).clip(RoundedCornerShape(20.dp)).background(cs.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.QueueMusic, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(64.dp))
+                    if (cover.isNotBlank()) AsyncImage(cover, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
+                Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 16.dp))
+                if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant,
+                    textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(info, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                Row(Modifier.padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = { env.playFrom(tracks.map { Yt.toTrack(it) }, 0) }) {
+                        Icon(Icons.Filled.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Riproduci")
+                    }
+                    FilledTonalButton(onClick = { env.engine.playQueue(tracks.map { Yt.toTrack(it) }.shuffled(), 0); env.openNowPlaying() }) {
+                        Icon(Icons.Filled.Shuffle, null); Spacer(Modifier.width(6.dp)); Text("Casuale")
+                    }
+                }
+            }
+        }
+        itemsIndexed(tracks, key = { i, it -> "${i}_${it.videoId}" }) { index, item ->
+            Box(Modifier.padding(horizontal = 16.dp)) {
+                YtRow(env, item) {
+                    env.feedback.tapScreen()
+                    env.playFrom(tracks.map { Yt.toTrack(it) }, index)
+                }
+            }
         }
     }
 }

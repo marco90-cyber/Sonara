@@ -178,16 +178,8 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
         val songs = YtUi.songs
         val ents = YtUi.entries[YtUi.kind]
         when {
-            open != null -> {
-                Text(open.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(vertical = 4.dp))
-                val tracks = YtUi.openTracks
-                when {
-                    YtUi.openError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(YtUi.openError!!, color = cs.onSurfaceVariant) }
-                    tracks == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nessun brano", color = cs.onSurfaceVariant) }
-                    else -> TrackList(env, tracks)
-                }
+            open != null -> CollectionState(env, open.title, open.subtitle, open.thumb, YtUi.openTracks, YtUi.openError) {
+                YtUi.open = null; YtUi.openTracks = null
             }
             YtUi.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             YtUi.searched.isEmpty() -> idle({ openEntry(it) }, { YtUi.query = it; run() })
