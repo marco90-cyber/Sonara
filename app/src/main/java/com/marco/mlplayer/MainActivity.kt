@@ -31,6 +31,27 @@ class MainActivity : ComponentActivity(), Actions {
             app.env.startScan(false)
         }
 
+    private val downloadPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+            if (uri == null) return@registerForActivityResult
+            val app = application as MLPlayerApp
+            if (!takeAccess(uri)) {
+                app.env.message = "Questa cartella non si può usare per i download"
+                return@registerForActivityResult
+            }
+            app.settings.downloadDir = uri.toString()
+            AppLog.i("Download", "Cartella download: $uri")
+            app.env.message = "Cartella dei download impostata"
+        }
+
+    override fun pickDownloadFolder() {
+        try {
+            downloadPicker.launch(null)
+        } catch (e: Exception) {
+            AppLog.e("Download", "Selettore cartelle non disponibile", e)
+        }
+    }
+
     /** Permesso persistente di lettura e, se il sistema lo concede, anche di scrittura (tag, copertine, testi). */
     private fun takeAccess(uri: Uri): Boolean {
         val rw = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION

@@ -25,6 +25,7 @@ object YtDataSource {
             if (spec.uri.scheme != "yt") return@Resolver spec
             val id = spec.uri.schemeSpecificPart.orEmpty()
             if (id.isBlank()) throw IOException("Indirizzo YouTube non valido")
+            YtDownloads.fileUri(id)?.let { return@Resolver spec.withUri(it) }
             spec.withUri(android.net.Uri.parse(Yt.resolve(id).url))
         })
     }

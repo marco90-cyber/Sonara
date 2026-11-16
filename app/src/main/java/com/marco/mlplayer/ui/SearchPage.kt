@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.History
@@ -64,6 +65,7 @@ import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
+import com.marco.mlplayer.yt.YtDownloads
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -314,6 +316,15 @@ fun YtRow(env: AppEnv, item: Yt.Item, onClick: () -> Unit) {
             )
         }
         if (fav) Icon(Icons.Filled.Favorite, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+        val pct = YtDownloads.progress[item.videoId]
+        if (pct != null) {
+            Spacer(Modifier.width(6.dp))
+            if (pct < 0) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            else CircularProgressIndicator(progress = { pct / 100f }, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        } else if (YtDownloads.isDownloaded(item.videoId)) {
+            Spacer(Modifier.width(6.dp))
+            Icon(Icons.Filled.DownloadDone, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+        }
         if (item.durationSec > 0) {
             Spacer(Modifier.width(8.dp))
             Text(fmt(item.durationSec), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
@@ -328,6 +339,11 @@ fun YtRow(env: AppEnv, item: Yt.Item, onClick: () -> Unit) {
                 DropdownMenuItem(text = { Text("Aggiungi alla coda") }, onClick = {
                     menu = false; env.engine.addToQueue(Yt.toTrack(item)); env.message = "Aggiunto alla coda"
                 })
+                if (YtDownloads.isDownloaded(item.videoId)) {
+                    DropdownMenuItem(text = { Text("Rimuovi download") }, onClick = { menu = false; YtDownloads.remove(item.videoId); env.message = "Download rimosso" })
+                } else if (!YtDownloads.isBusy(item.videoId)) {
+                    DropdownMenuItem(text = { Text("Scarica") }, onClick = { menu = false; YtDownloads.download(listOf(item)) })
+                }
                 DropdownMenuItem(
                     text = { Text(if (fav) "Togli dai preferiti" else "Aggiungi ai preferiti") },
                     leadingIcon = { Icon(if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, null) },

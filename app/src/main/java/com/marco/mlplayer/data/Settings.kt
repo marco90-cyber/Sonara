@@ -107,6 +107,9 @@ class Settings(context: Context) {
         foldersRaw = folders.filter { it != uri }.joinToString("\n")
     }
 
+    /** Cartella (albero SAF) dove Sonara salva i brani scaricati. */
+    var downloadDir by StringPref(sp, "download_dir", "")
+
     // Riproduzione
     var shuffle by BoolPref(sp, "shuffle", false)
 

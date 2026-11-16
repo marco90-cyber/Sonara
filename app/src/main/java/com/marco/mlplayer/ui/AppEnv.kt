@@ -25,6 +25,7 @@ enum class Tab(val label: String) {
 /** Azioni che richiedono l'Activity (selettore cartelle, browser, condivisione). */
 interface Actions {
     fun pickFolder()
+    fun pickDownloadFolder()
     fun openUrl(url: String)
     fun shareLog()
     /** Chiede di nuovo la cartella [tree] con il permesso di scrittura (per tag, copertine e testi). */

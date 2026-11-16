@@ -2,6 +2,7 @@ package com.marco.mlplayer.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
@@ -65,6 +66,14 @@ fun SettingsHome(env: AppEnv) {
                     s.hapticStrength.coerceIn(0, 2).toString()
                 ) { s.hapticStrength = it.toInt(); env.feedback.test() }
             }
+        }
+        MLGroup("Download") {
+            MLNavRow(
+                "Cartella dei download",
+                s.downloadDir.takeIf { it.isNotBlank() }?.let { android.net.Uri.parse(it).lastPathSegment?.substringAfterLast(':') }
+                    ?: "Non impostata: scegli dove salvare i brani offline",
+                icon = Icons.Filled.Download,
+            ) { env.actions?.pickDownloadFolder() }
         }
         MLGroup("App") {
             MLNavRow(

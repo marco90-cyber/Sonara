@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
@@ -56,6 +57,7 @@ import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
+import com.marco.mlplayer.yt.YtDownloads
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,17 +80,26 @@ fun LibraryPage(env: AppEnv) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = LibUi.page == 0, onClick = { LibUi.page = 0 }, label = { Text("Preferiti · ${store.favorites.size}") })
             FilterChip(selected = LibUi.page == 3, onClick = { LibUi.page = 3 }, label = { Text("Salvati · ${store.saved.size}") })
+            FilterChip(selected = LibUi.page == 4, onClick = { LibUi.page = 4 }, label = { Text("Scaricati · ${YtDownloads.entries.size}") })
             FilterChip(selected = LibUi.page == 1, onClick = { LibUi.page = 1 }, label = { Text("Cronologia") })
         }
         if (LibUi.page == 3) {
             SavedSection(env)
             return@Column
         }
-        val items = if (LibUi.page == 0) store.favorites else store.history
+        val items = when (LibUi.page) {
+            0 -> store.favorites
+            4 -> YtDownloads.entries.map { it.item }
+            else -> store.history
+        }
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    if (LibUi.page == 0) "Nessun preferito: usa il menu ⋮ di un brano" else "Nessun brano ascoltato",
+                    when (LibUi.page) {
+                        0 -> "Nessun preferito: usa il menu ⋮ di un brano"
+                        4 -> "Nessun brano scaricato: usa Scarica nel menu ⋮ di un brano"
+                        else -> "Nessun brano ascoltato"
+                    },
                     color = cs.onSurfaceVariant,
                 )
             }
@@ -204,6 +215,11 @@ private fun CollectionView(
                     FilledTonalButton(onClick = { env.engine.playQueue(tracks.map { Yt.toTrack(it) }.shuffled(), 0); env.openNowPlaying() }) {
                         Icon(Icons.Filled.Shuffle, null); Spacer(Modifier.width(6.dp)); Text("Casuale")
                     }
+                if (bookmark != null && bookmark.kind != Yt.Kind.Artists) {
+                    FilledTonalIconButton(onClick = { YtDownloads.download(tracks) }) {
+                        Icon(Icons.Filled.Download, contentDescription = "Scarica tutto")
+                    }
+                }
                 if (bookmark != null) {
                     val saved = env.app.ytStore.isSaved(bookmark.browseId)
                     FilledTonalIconButton(onClick = {
