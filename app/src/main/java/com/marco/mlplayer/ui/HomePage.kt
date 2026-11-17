@@ -1,7 +1,8 @@
 package com.marco.mlplayer.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +24,9 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -84,7 +88,25 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
     }
     LaunchedEffect(Unit) { if (!HomeUi.loading && HomeUi.shelves == null) load() }
 
+    var removing by remember { mutableStateOf<Yt.Entry?>(null) }
+    removing?.let { r ->
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text("Rimuovere la playlist?") },
+            text = { Text("«${r.title}» non sarà più tra le importate. I brani scaricati restano.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    env.app.ytImports.remove(r.browseId)
+                    YtUi.details.remove(r.browseId)
+                    removing = null
+                }) { Text("Rimuovi") }
+            },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Annulla") } },
+        )
+    }
+
     val shelves = HomeUi.shelves
+    val imported = env.app.ytImports.all
     val recent = env.app.ytStore.history.take(15)
     val past = env.app.ytStore.searches.take(8)
     when {
@@ -106,6 +128,9 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             if (recent.isNotEmpty()) item {
                 ShelfRow("Ascoltati di recente", recent.map { YtApi.Card(it, null) }, env, open)
             }
+            if (imported.isNotEmpty()) item {
+                ShelfRow("Importate", imported.map { YtApi.Card(null, it.entry) }, env, open, onLongPress = { removing = it })
+            }
             items(shelves.orEmpty(), key = { it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             if (HomeUi.loading) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (shelves != null && HomeUi.error != null) item { Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
@@ -118,8 +143,9 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpen: (Yt.Entry) -> Unit) {
+internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpen: (Yt.Entry) -> Unit, onLongPress: ((Yt.Entry) -> Unit)? = null) {
     val cs = MaterialTheme.colorScheme
     Column(Modifier.padding(top = 12.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -128,11 +154,14 @@ internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpe
             items(cards, key = { (it.song?.videoId ?: it.entry?.browseId.orEmpty()) + it.title }) { c ->
                 val artist = c.entry?.kind == Yt.Kind.Artists
                 Column(
-                    Modifier.width(140.dp).clip(RoundedCornerShape(14.dp)).clickable {
-                        env.feedback.tapScreen()
-                        val s = c.song
-                        if (s != null) env.playWithRadio(s) else c.entry?.let(onOpen)
-                    },
+                    Modifier.width(140.dp).clip(RoundedCornerShape(14.dp)).combinedClickable(
+                        onLongClick = onLongPress?.let { f -> { c.entry?.let(f) } },
+                        onClick = {
+                            env.feedback.tapScreen()
+                            val s = c.song
+                            if (s != null) env.playWithRadio(s) else c.entry?.let(onOpen)
+                        },
+                    ),
                 ) {
                     Box(
                         Modifier.size(140.dp).clip(if (artist) CircleShape else RoundedCornerShape(14.dp)).background(cs.primaryContainer),

@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.util.mmss
+import com.marco.mlplayer.yt.PlaylistImport
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtDownloads
@@ -86,6 +87,8 @@ object YtUi {
     val trail = mutableStateListOf<Yt.Entry>()
     val details = mutableStateMapOf<String, YtApi.Detail>()
     val errors = mutableStateMapOf<String, String>()
+    /** Playlist in corso di importazione (per non avviarla due volte). */
+    val importing: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     val open: Yt.Entry? get() = trail.lastOrNull()
 
     fun back() { if (trail.isNotEmpty()) trail.removeAt(trail.lastIndex) }
@@ -100,6 +103,11 @@ fun openYtEntry(env: AppEnv, e: Yt.Entry, trail: MutableList<Yt.Entry> = YtUi.tr
     trail.add(e)
     if (YtUi.details.containsKey(e.browseId)) return
     YtUi.errors.remove(e.browseId)
+    val ref = PlaylistImport.refOf(e.browseId)
+    if (ref != null) {
+        openImported(env, e, ref, trail)
+        return
+    }
     env.app.appScope.launch {
         val r = withContext(Dispatchers.IO) {
             runCatching {
@@ -114,6 +122,47 @@ fun openYtEntry(env: AppEnv, e: Yt.Entry, trail: MutableList<Yt.Entry> = YtUi.tr
         r.onSuccess { YtUi.details[e.browseId] = it }.onFailure {
             AppLog.e("YouTube", "Apertura di ${e.title} non riuscita", it)
             YtUi.errors[e.browseId] = "Non riesco ad aprire questo elemento (dettagli nel log)."
+        }
+    }
+}
+
+/** Playlist di Spotify, Deezer o YouTube: già importata si apre subito, altrimenti si importa mostrando i brani man mano. */
+private fun openImported(env: AppEnv, e: Yt.Entry, ref: PlaylistImport.Ref, trail: MutableList<Yt.Entry>) {
+    env.app.ytImports.find(ref.importId)?.let {
+        YtUi.details[e.browseId] = YtApi.Detail(it.tracks, emptyList())
+        return
+    }
+    if (!YtUi.importing.add(e.browseId)) return
+    fun show(title: String, sub: String, thumb: String) {
+        val i = trail.indexOfFirst { it.browseId == e.browseId }
+        if (i >= 0) trail[i] = e.copy(title = title, subtitle = sub, thumb = thumb.ifBlank { e.thumb })
+    }
+    env.app.appScope.launch {
+        val r = withContext(Dispatchers.IO) {
+            runCatching {
+                PlaylistImport.import(ref) { meta, found, done, total ->
+                    show(meta.name, "Importo da ${ref.source.label}… $done/$total", meta.cover)
+                    if (found.isNotEmpty()) YtUi.details[e.browseId] = YtApi.Detail(found.toList(), emptyList())
+                }
+            }
+        }
+        YtUi.importing.remove(e.browseId)
+        r.onSuccess { res ->
+            if (res.tracks.isEmpty()) {
+                YtUi.details.remove(e.browseId)
+                YtUi.errors[e.browseId] = "Non ho trovato nessun brano di questa playlist su YouTube Music."
+                return@onSuccess
+            }
+            val sub = if (res.tracks.size == res.total) "Importata da ${ref.source.label} · ${res.total} brani"
+            else "Importata da ${ref.source.label} · ${res.tracks.size} di ${res.total} brani"
+            val done = Yt.Entry(Yt.Kind.Playlists, ref.importId, res.meta.name, sub, res.meta.cover)
+            YtUi.details[e.browseId] = YtApi.Detail(res.tracks, emptyList())
+            env.app.ytImports.add(done, res.tracks)
+            show(res.meta.name, sub, res.meta.cover)
+        }.onFailure {
+            AppLog.e("Importa", "Importazione da ${ref.source.label} non riuscita", it)
+            YtUi.details.remove(e.browseId)
+            YtUi.errors[e.browseId] = "Non riesco a leggere questa playlist: dev'essere pubblica e il link giusto (dettagli nel log)."
         }
     }
 }
@@ -139,9 +188,16 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
                     if (kind == Yt.Kind.Songs) {
                         Yt.search(q) { part -> scope.launch { if (YtUi.searched == q) { YtUi.songs = part; YtUi.loading = false } } }.size
                     } else {
-                        Yt.searchEntries(q, kind) { part ->
-                            scope.launch { if (YtUi.searched == q) { YtUi.entries = YtUi.entries + (kind to part); YtUi.loading = false } }
-                        }.size
+                        // tra le playlist, oltre a quelle di YouTube Music, ci sono le pubbliche di Deezer: la provenienza è nel sottotitolo
+                        val extra = if (kind == Yt.Kind.Playlists) PlaylistImport.searchDeezer(q) else emptyList()
+                        fun merged(yt: List<Yt.Entry>) =
+                            if (kind != Yt.Kind.Playlists) yt
+                            else yt.map { it.copy(subtitle = listOf("YouTube", it.subtitle).filter { s -> s.isNotBlank() }.joinToString(" · ")) } + extra
+                        val yt = Yt.searchEntries(q, kind) { part ->
+                            scope.launch { if (YtUi.searched == q) { YtUi.entries = YtUi.entries + (kind to merged(part)); YtUi.loading = false } }
+                        }
+                        if (extra.isNotEmpty()) scope.launch { if (YtUi.searched == q) { YtUi.entries = YtUi.entries + (kind to merged(yt)); YtUi.loading = false } }
+                        yt.size + extra.size
                     }
                 }
             }
@@ -156,15 +212,27 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
         }
     }
 
-    fun run() {
-        val q = YtUi.query.trim()
-        if (q.isEmpty()) return
-        focus.clearFocus()
+    fun search(q: String) {
         env.app.ytStore.addSearch(q)
         if (YtUi.searched != q) {
             YtUi.searched = q; YtUi.songs = null; YtUi.entries = emptyMap(); YtUi.trail.clear()
         }
         load(q, YtUi.kind)
+    }
+
+    fun run() {
+        val q = YtUi.query.trim()
+        if (q.isEmpty()) return
+        focus.clearFocus()
+        if (!PlaylistImport.maybeLink(q)) { search(q); return }
+        // un link di una playlist di Spotify, Deezer o YouTube si importa; qualunque altro testo è una ricerca
+        env.app.appScope.launch {
+            val ref = withContext(Dispatchers.IO) { PlaylistImport.parseResolving(q) }
+            if (ref == null) search(q) else {
+                YtUi.query = ""; YtUi.trail.clear()
+                openYtEntry(env, ref.placeholder())
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
@@ -173,7 +241,7 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
             onValueChange = { YtUi.query = it },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
             singleLine = true,
-            placeholder = { Text("Cerca brano, album, playlist") },
+            placeholder = { Text("Cerca o incolla il link di una playlist") },
             leadingIcon = { Icon(Icons.Filled.Search, null) },
             trailingIcon = {
                 if (YtUi.query.isNotEmpty()) {

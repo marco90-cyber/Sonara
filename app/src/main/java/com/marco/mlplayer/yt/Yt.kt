@@ -14,6 +14,7 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.localization.ContentCountry
+import org.schabi.newpipe.extractor.playlist.PlaylistInfo
 import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
 import org.schabi.newpipe.extractor.search.SearchExtractor
 import org.schabi.newpipe.extractor.localization.Localization
@@ -112,6 +113,13 @@ object Yt {
         AppLog.i(TAG, "Ricerca \"$query\": ${last.size} brani")
         return last
     }
+
+    /** Titolo e copertina di una playlist YouTube; null se non si riesce a leggerli. Bloccante. */
+    fun playlistMeta(listId: String): Pair<String, String>? = runCatching {
+        init()
+        val info = PlaylistInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/playlist?list=$listId")
+        info.name.orEmpty() to info.thumbnails.maxByOrNull { it.height * it.width }?.url.orEmpty()
+    }.getOrNull()?.takeIf { it.first.isNotBlank() }
 
     enum class Kind(val label: String) { Songs("Brani"), Artists("Artisti"), Albums("Album"), Playlists("Playlist") }
 

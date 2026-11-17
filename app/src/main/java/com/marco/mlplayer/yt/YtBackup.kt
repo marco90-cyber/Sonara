@@ -13,12 +13,14 @@ import java.util.concurrent.TimeUnit
 /**
  * Copia di riserva nella cartella dei download, per ritrovare tutto dopo una reinstallazione:
  * - .sonara-downloads.json: i brani scaricati e i loro gruppi (playlist, album, artisti);
- * - .sonara-library.json: preferiti, salvati e cronologia.
+ * - .sonara-library.json: preferiti, salvati e cronologia;
+ * - .sonara-imports.json: le playlist importate da Spotify, Deezer e YouTube.
  */
 object YtBackup {
     private const val TAG = "Backup"
     const val DOWNLOADS = ".sonara-downloads.json"
     const val LIBRARY = ".sonara-library.json"
+    const val IMPORTS = ".sonara-imports.json"
 
     private lateinit var app: MLPlayerApp
     private val io = Executors.newSingleThreadScheduledExecutor()
@@ -50,6 +52,7 @@ object YtBackup {
         runCatching {
             writeFile(r, DOWNLOADS, YtDownloads.exportJson())
             writeFile(r, LIBRARY, app.ytStore.exportJson())
+            writeFile(r, IMPORTS, app.ytImports.exportJson())
         }.onFailure { AppLog.w(TAG, "Copia di riserva non scritta", it) }
     }
 
@@ -67,6 +70,8 @@ object YtBackup {
             .onFailure { AppLog.w(TAG, "Download non ripristinati", it) }
         runCatching { read(root, LIBRARY)?.let { lib = app.ytStore.mergeFrom(it) } }
             .onFailure { AppLog.w(TAG, "Libreria non ripristinata", it) }
+        runCatching { read(root, IMPORTS)?.let { lib += app.ytImports.mergeFrom(it) } }
+            .onFailure { AppLog.w(TAG, "Playlist importate non ripristinate", it) }
         AppLog.i(TAG, "Ripristino: $songs brani scaricati, $lib elementi di libreria")
         when {
             songs > 0 && lib > 0 -> "Ripristinati $songs brani scaricati e $lib elementi della libreria"

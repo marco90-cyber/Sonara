@@ -26,6 +26,8 @@ class MLPlayerApp : Application() {
         private set
     lateinit var ytStore: com.marco.mlplayer.yt.YtStore
         private set
+    lateinit var ytImports: com.marco.mlplayer.yt.YtImports
+        private set
 
     /** Stato dell'interfaccia: sopravvive alla ricreazione dell'Activity. */
     val env: AppEnv by lazy { AppEnv(this) }
@@ -37,6 +39,7 @@ class MLPlayerApp : Application() {
         AppLog.verbose = settings.verboseLog
         library = Library(this)
         ytStore = com.marco.mlplayer.yt.YtStore(this)
+        ytImports = com.marco.mlplayer.yt.YtImports(this)
         com.marco.mlplayer.yt.YtDownloads.init(this)
         com.marco.mlplayer.yt.YtBackup.init(this)
         feedback = Feedback(this, settings)
