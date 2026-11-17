@@ -1,14 +1,18 @@
 package com.marco.mlplayer.yt
 
-import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import com.marco.mlplayer.MLPlayerApp
+import com.marco.mlplayer.audio.DownloadService
 import com.marco.mlplayer.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -22,25 +26,46 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * Brani scaricati nella cartella scelta dall'utente. L'elenco (con i dati dei brani) sta in
- * filesDir/yt_downloads.json; la riproduzione usa il file al posto del flusso di rete.
+ * Brani scaricati nella cartella scelta dall'utente, raggruppati per playlist, album o artista
+ * (una sottocartella per gruppo). L'elenco sta in filesDir/yt_downloads.json; la riproduzione
+ * usa il file al posto del flusso di rete.
  */
 object YtDownloads {
     private const val TAG = "Download"
-    private const val CHUNK = 4L * 1024 * 1024
+    const val SINGLES = "singles"
 
-    class Entry(val item: Yt.Item, val uri: String)
+    /** Un gruppo di download: playlist, album, artista oppure i brani singoli. */
+    class Group(val id: String, val kind: String, val title: String, val thumb: String)
+    class Entry(val item: Yt.Item, val uri: String, val group: String)
+    private class Job(val item: Yt.Item, val group: String)
 
     /** Più recenti in alto. */
     val entries = mutableStateListOf<Entry>()
+    val groups = mutableStateListOf<Group>()
 
     /** videoId -> avanzamento 0..100 (-1 = in coda). */
     val progress = mutableStateMapOf<String, Int>()
-    var failed by mutableStateOf<String?>(null)
+
+    /** videoId -> gruppo, per i download in coda o in corso. */
+    private val jobGroup = mutableStateMapOf<String, String>()
 
     private lateinit var app: MLPlayerApp
-    private val queue = ArrayDeque<Yt.Item>()
+    private val queue = ArrayDeque<Job>()
+    private var current: Job? = null
+    @Volatile private var cancelId: String? = null
     private var working = false
+    private var batchTotal = 0
+    private var batchDone = 0
+    private val ui = Handler(Looper.getMainLooper())
+    private var notifyPending = false
+
+    /** Chiamato (sul thread principale) quando cambia lo stato: lo usa la notifica. */
+    var onChange: (() -> Unit)? = null
+
+    class Snapshot(val total: Int, val done: Int, val title: String, val pct: Int)
+    val active get() = working
+    fun snapshot() = Snapshot(batchTotal, batchDone, current?.item?.title.orEmpty(), current?.let { progress[it.item.videoId] }?.coerceAtLeast(0) ?: 0)
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -52,11 +77,20 @@ object YtDownloads {
         this.app = app
         runCatching {
             if (!indexFile.exists()) return
-            val a = JSONArray(indexFile.readText())
-            for (i in 0 until a.length()) {
-                val o = a.getJSONObject(i)
+            val text = indexFile.readText().trim()
+            val arr = if (text.startsWith("[")) JSONArray(text) else JSONObject(text).optJSONArray("entries") ?: JSONArray()
+            if (!text.startsWith("[")) {
+                JSONObject(text).optJSONArray("groups")?.let { g ->
+                    for (i in 0 until g.length()) {
+                        val o = g.getJSONObject(i)
+                        groups.add(Group(o.getString("id"), o.optString("kind"), o.optString("title"), o.optString("thumb")))
+                    }
+                }
+            }
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
                 val item = Yt.Item(o.getString("id"), o.optString("title"), o.optString("artist"), o.optLong("dur"), o.optString("thumb"))
-                entries.add(Entry(item, o.getString("uri")))
+                entries.add(Entry(item, o.getString("uri"), o.optString("group", SINGLES)))
             }
         }.onFailure { AppLog.w(TAG, "Elenco download non leggibile", it) }
     }
@@ -65,14 +99,19 @@ object YtDownloads {
         val a = JSONArray()
         entries.forEach {
             a.put(JSONObject().put("id", it.item.videoId).put("title", it.item.title).put("artist", it.item.artist)
-                .put("dur", it.item.durationSec).put("thumb", it.item.thumb).put("uri", it.uri))
+                .put("dur", it.item.durationSec).put("thumb", it.item.thumb).put("uri", it.uri).put("group", it.group))
         }
-        runCatching { indexFile.writeText(a.toString()) }
+        val g = JSONArray()
+        groups.forEach { g.put(JSONObject().put("id", it.id).put("kind", it.kind).put("title", it.title).put("thumb", it.thumb)) }
+        runCatching { indexFile.writeText(JSONObject().put("entries", a).put("groups", g).toString()) }
     }
 
     fun isDownloaded(videoId: String) = entries.any { it.item.videoId == videoId }
     fun isBusy(videoId: String) = progress.containsKey(videoId)
+    fun groupBusy(groupId: String) = jobGroup.containsValue(groupId)
     fun hasFolder() = app.settings.downloadDir.isNotBlank()
+    fun itemsOf(groupId: String) = entries.filter { it.group == groupId }.map { it.item }
+    fun groupOf(id: String) = groups.firstOrNull { it.id == id }
 
     /** Indirizzo del file scaricato, se c'è ancora; chiamato dal lettore all'apertura del brano. */
     fun fileUri(videoId: String): Uri? {
@@ -81,64 +120,150 @@ object YtDownloads {
         val ok = runCatching { DocumentFile.fromSingleUri(app, uri)?.exists() == true }.getOrDefault(false)
         if (!ok) {
             AppLog.w(TAG, "File mancante, torno al flusso di rete: ${e.item.title}")
-            app.appScope.launch { entries.remove(e); save() }
+            app.appScope.launch { entries.removeAll { it.uri == e.uri }; save() }
             return null
         }
         return uri
     }
 
-    fun download(items: List<Yt.Item>) {
+    private fun changed() {
+        if (notifyPending) return
+        notifyPending = true
+        ui.postDelayed({ notifyPending = false; onChange?.invoke() }, 400)
+    }
+
+    /** Scarica [items] nel gruppo [group] (playlist/album/artista); senza gruppo vanno tra i brani singoli. */
+    fun download(items: List<Yt.Item>, group: Group? = null) {
         if (!hasFolder()) {
             app.env.message = "Scegli prima la cartella dei download nelle Impostazioni"
             return
         }
+        val g = group ?: Group(SINGLES, "Songs", "Brani singoli", "")
+        if (groups.none { it.id == g.id }) groups.add(0, g)
         var added = 0
         for (it in items) {
-            if (isDownloaded(it.videoId) || isBusy(it.videoId)) continue
+            if (entries.any { e -> e.item.videoId == it.videoId && e.group == g.id } || isBusy(it.videoId)) continue
+            val other = entries.firstOrNull { e -> e.item.videoId == it.videoId }
+            if (other != null) {              // già scaricato altrove: lo ricollego, senza riscaricarlo
+                entries.add(0, Entry(it, other.uri, g.id))
+                continue
+            }
             progress[it.videoId] = -1
-            queue.addLast(it)
+            jobGroup[it.videoId] = g.id
+            queue.addLast(Job(it, g.id))
+            batchTotal++
             added++
         }
+        save()
         if (added > 0) app.env.message = if (added == 1) "Download avviato" else "$added brani in coda per il download"
         pump()
     }
 
-    fun remove(videoId: String) {
-        val e = entries.firstOrNull { it.item.videoId == videoId } ?: return
-        entries.remove(e)
+    /** Ferma un download (in coda o in corso). */
+    fun cancel(videoId: String) {
+        queue.removeAll { it.item.videoId == videoId }.also { if (it) batchTotal-- }
+        if (current?.item?.videoId == videoId) cancelId = videoId
+        else { progress.remove(videoId); jobGroup.remove(videoId) }
+        changed()
+    }
+
+    fun cancelGroup(groupId: String) {
+        val mine = queue.filter { it.group == groupId }
+        mine.forEach { progress.remove(it.item.videoId); jobGroup.remove(it.item.videoId) }
+        queue.removeAll(mine.toSet()); batchTotal -= mine.size
+        current?.takeIf { it.group == groupId }?.let { cancelId = it.item.videoId }
+        changed()
+    }
+
+    fun cancelAll() {
+        queue.forEach { progress.remove(it.item.videoId); jobGroup.remove(it.item.videoId) }
+        batchTotal -= queue.size
+        queue.clear()
+        current?.let { cancelId = it.item.videoId }
+        changed()
+    }
+
+    /** Toglie un brano da un gruppo; il file si cancella solo se nessun altro gruppo lo usa. */
+    fun remove(videoId: String, groupId: String? = null) {
+        val mine = entries.filter { it.item.videoId == videoId && (groupId == null || it.group == groupId) }
+        mine.forEach { dropEntry(it) }
         save()
-        app.appScope.launch(Dispatchers.IO) {
-            runCatching { DocumentFile.fromSingleUri(app, Uri.parse(e.uri))?.delete() }
+    }
+
+    private fun dropEntry(e: Entry) {
+        entries.remove(e)
+        if (entries.none { it.uri == e.uri }) {
+            app.appScope.launch(Dispatchers.IO) {
+                runCatching { DocumentFile.fromSingleUri(app, Uri.parse(e.uri))?.delete() }
+            }
         }
     }
+
+    /** Elimina un'intera playlist/album/artista scaricato: file e cartella. */
+    fun deleteGroup(groupId: String) {
+        cancelGroup(groupId)
+        val g = groupOf(groupId)
+        entries.filter { it.group == groupId }.forEach { dropEntry(it) }
+        groups.removeAll { it.id == groupId }
+        save()
+        if (g != null && g.id != SINGLES) {
+            val root = app.settings.downloadDir
+            app.appScope.launch(Dispatchers.IO) {
+                delay(800)
+                runCatching {
+                    val dir = DocumentFile.fromTreeUri(app, Uri.parse(root))?.findFile(safeName(g.title))
+                    if (dir != null && dir.isDirectory && dir.listFiles().isEmpty()) dir.delete()
+                }
+            }
+        }
+    }
+
+    private suspend fun delay(ms: Long) = kotlinx.coroutines.delay(ms)
 
     private fun pump() {
         if (working) return
         working = true
+        ContextCompat.startForegroundService(app, Intent(app, DownloadService::class.java))
         app.appScope.launch {
+            var failed = 0
             while (queue.isNotEmpty()) {
-                val item = queue.removeFirst()
-                val r = withContext(Dispatchers.IO) { runCatching { fetch(item) } }
-                progress.remove(item.videoId)
-                r.onSuccess { uri ->
-                    entries.add(0, Entry(item, uri)); save()
-                }.onFailure {
-                    AppLog.e(TAG, "Download non riuscito: ${item.title}", it)
-                    app.env.message = "Download non riuscito: ${item.title}"
-                }
+                val job = queue.removeFirst()
+                current = job
+                cancelId = null
+                changed()
+                val r = withContext(Dispatchers.IO) { runCatching { fetch(job) } }
+                current = null
+                progress.remove(job.item.videoId); jobGroup.remove(job.item.videoId)
+                batchDone++
+                r.onSuccess { uri -> entries.add(0, Entry(job.item, uri, job.group)); save() }
+                    .onFailure {
+                        if (it is Cancelled) AppLog.i(TAG, "Download fermato: ${job.item.title}")
+                        else { failed++; AppLog.e(TAG, "Download non riuscito: ${job.item.title}", it) }
+                    }
             }
             working = false
-            if (entries.isNotEmpty()) app.env.message = "Download completati"
+            batchTotal = 0; batchDone = 0
+            changed()
+            ui.postDelayed({ onChange?.invoke() }, 500)
+            if (failed > 0) app.env.message = "Download non riusciti: $failed"
+            else if (entries.isNotEmpty()) app.env.message = "Download completati"
         }
     }
 
-    private fun safeName(s: String) = s.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\s+"), " ").trim().take(120)
+    private class Cancelled : IOException("Annullato")
+
+    fun safeName(s: String) = s.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\s+"), " ").trim().take(120)
 
     /** Scarica a blocchi con Range (come fa il sito, evita i rallentamenti) e restituisce l'uri del file. */
-    private fun fetch(item: Yt.Item): String {
-        val dirUri = app.settings.downloadDir
-        val dir = DocumentFile.fromTreeUri(app, Uri.parse(dirUri))?.takeIf { it.canWrite() }
+    private fun fetch(job: Job): String {
+        val item = job.item
+        val root = DocumentFile.fromTreeUri(app, Uri.parse(app.settings.downloadDir))?.takeIf { it.canWrite() }
             ?: throw IOException("Cartella dei download non accessibile")
+        val g = groupOf(job.group)
+        val dir = if (g == null || g.id == SINGLES) root else {
+            val name = safeName(g.title).ifBlank { g.id }
+            root.findFile(name)?.takeIf { it.isDirectory } ?: root.createDirectory(name) ?: throw IOException("Impossibile creare la cartella")
+        }
         val res = Yt.resolve(item.videoId)
         val webm = res.mime.contains("webm")
         val ext = if (webm) "webm" else "m4a"
@@ -148,9 +273,10 @@ object YtDownloads {
         try {
             var pos = 0L
             var total = -1L
+            val buf = ByteArray(64 * 1024)
             app.contentResolver.openOutputStream(doc.uri, "w")!!.use { out ->
                 while (total < 0 || pos < total) {
-                    val end = pos + CHUNK - 1
+                    val end = pos + 4L * 1024 * 1024 - 1
                     val req = Request.Builder().url(res.url)
                         .header("Range", "bytes=$pos-$end")
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0")
@@ -161,11 +287,18 @@ object YtDownloads {
                             total = r.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
                                 ?: r.body?.contentLength()?.takeIf { it > 0 } ?: throw IOException("Dimensione sconosciuta")
                         }
-                        val body = r.body ?: throw IOException("Risposta vuota")
-                        val n = body.byteStream().copyTo(out)
-                        if (n <= 0) throw IOException("Flusso interrotto")
-                        pos += n
-                        progress[item.videoId] = (pos * 100 / total).toInt().coerceIn(0, 99)
+                        val input = (r.body ?: throw IOException("Risposta vuota")).byteStream()
+                        var got = 0L
+                        while (true) {
+                            if (cancelId == item.videoId) throw Cancelled()
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            got += n; pos += n
+                            progress[item.videoId] = (pos * 100 / total).toInt().coerceIn(0, 99)
+                            changed()
+                        }
+                        if (got <= 0) throw IOException("Flusso interrotto")
                     }
                 }
             }

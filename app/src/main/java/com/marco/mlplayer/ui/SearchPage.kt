@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -319,8 +320,14 @@ fun YtRow(env: AppEnv, item: Yt.Item, onClick: () -> Unit) {
         val pct = YtDownloads.progress[item.videoId]
         if (pct != null) {
             Spacer(Modifier.width(6.dp))
-            if (pct < 0) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            else CircularProgressIndicator(progress = { pct / 100f }, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            Box(
+                Modifier.size(32.dp).clip(CircleShape).clickable { YtDownloads.cancel(item.videoId) },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (pct < 0) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                else CircularProgressIndicator(progress = { pct / 100f }, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                Icon(Icons.Filled.Stop, contentDescription = "Ferma il download", tint = cs.primary, modifier = Modifier.size(12.dp))
+            }
         } else if (YtDownloads.isDownloaded(item.videoId)) {
             Spacer(Modifier.width(6.dp))
             Icon(Icons.Filled.DownloadDone, null, tint = cs.primary, modifier = Modifier.size(18.dp))
@@ -341,7 +348,9 @@ fun YtRow(env: AppEnv, item: Yt.Item, onClick: () -> Unit) {
                 })
                 if (YtDownloads.isDownloaded(item.videoId)) {
                     DropdownMenuItem(text = { Text("Rimuovi download") }, onClick = { menu = false; YtDownloads.remove(item.videoId); env.message = "Download rimosso" })
-                } else if (!YtDownloads.isBusy(item.videoId)) {
+                } else if (YtDownloads.isBusy(item.videoId)) {
+                    DropdownMenuItem(text = { Text("Ferma il download") }, onClick = { menu = false; YtDownloads.cancel(item.videoId) })
+                } else {
                     DropdownMenuItem(text = { Text("Scarica") }, onClick = { menu = false; YtDownloads.download(listOf(item)) })
                 }
                 DropdownMenuItem(
