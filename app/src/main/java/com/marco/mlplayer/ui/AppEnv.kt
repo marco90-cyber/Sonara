@@ -218,6 +218,8 @@ class AppEnv(val app: MLPlayerApp) {
 
     fun select(t: Tab) {
         if (tab == t) currentNav?.popToRoot()
+        // toccare Home mentre sei già in Home: torna alla schermata principale (chiude ricerca e pagine aperte)
+        if (t == Tab.Home && tab == Tab.Home) YtUi.reset()
         if (t == Tab.NowPlaying && tab != Tab.NowPlaying) tabBeforePlayer = tab
         tab = t
     }

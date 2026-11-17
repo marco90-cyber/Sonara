@@ -173,7 +173,7 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
             onValueChange = { YtUi.query = it },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
             singleLine = true,
-            placeholder = { Text("Cerca su YouTube Music") },
+            placeholder = { Text("Cerca brano, album, playlist") },
             leadingIcon = { Icon(Icons.Filled.Search, null) },
             trailingIcon = {
                 if (YtUi.query.isNotEmpty()) {
