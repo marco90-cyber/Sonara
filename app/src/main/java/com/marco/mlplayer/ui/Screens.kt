@@ -241,12 +241,6 @@ fun AppEnv.playbackScreen(): MenuScreen = MenuScreen("Riproduzione") {
             sub = "Bit e kHz si adattano a DAC o casse · dal prossimo brano"
         ) { engine.setAdaptiveOutput(it) },
         MenuItem("Equalizzatore", chevron = true) { tab = Tab.Eq },
-        MenuItem("Uscita audio", chevron = true) { overlay = Overlay.Output },
-        MenuItem(
-            "Percorso del segnale", chevron = true,
-            sub = "USB esclusiva, uscita diretta, bit-perfect",
-            value = engine.outputs.path.route.name.let { if (it == "Android") "Android" else "Diretta" },
-        ) { settingsNav.push(SignalPathScreen) },
     )
 }
 

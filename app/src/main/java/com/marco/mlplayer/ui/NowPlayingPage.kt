@@ -68,6 +68,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -96,22 +99,6 @@ private fun sourceLabel(t: Track): String = buildList {
     }.joinToString(" / ")
     if (q.isNotBlank()) add(q) else if (t.bitrateKbps > 0) add("${t.bitrateKbps} kbps")
 }.joinToString(" · ")
-
-/** Dove esce il suono, per il chip sotto il lettore. */
-private fun outputLabel(env: AppEnv): String {
-    val e = env.engine
-    val path = e.outputs.path
-    val om = e.outputMonitor
-    val dev = path.steps.firstOrNull { it.title == "Dispositivo" }?.main
-        ?: om.name.takeIf { it.isNotBlank() && it != om.kind.label } ?: om.kind.label
-    val mode = when {
-        path.bitPerfect -> "bit-perfect"
-        path.route != Route.Android -> "diretta"
-        env.settings.dsp.master -> "DSP"
-        else -> null
-    }
-    return listOfNotNull(dev, mode).joinToString(" · ")
-}
 
 /** Sezione Lettore: copertina, brano, avanzamento, comandi, VU meter e qualità dell'uscita. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -146,9 +133,6 @@ fun NowPlayingPage(env: AppEnv) {
             )
             IconButton(onClick = { fb.tapScreen(); env.overlay = Overlay.Analyzer }) {
                 Icon(Icons.Filled.Timeline, contentDescription = "Analizzatore")
-            }
-            IconButton(onClick = { fb.tapScreen(); env.overlay = Overlay.Output }) {
-                Icon(Icons.Filled.Headphones, contentDescription = "Uscita audio")
             }
             IconButton(onClick = { fb.tapScreen(); env.showQueue = true }, enabled = t != null) {
                 Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "Coda")
@@ -301,22 +285,20 @@ fun NowPlayingPage(env: AppEnv) {
 
             if (env.settings.showVu) VuCard(env)
 
-            // qualità e uscita: toccando si apre il percorso del segnale
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (t != null) {
-                    AssistChip(
-                        onClick = { fb.tapScreen(); env.showSignalPath = true },
-                        label = { Text(sourceLabel(t), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        leadingIcon = { Icon(Icons.Filled.GraphicEq, null, Modifier.size(AssistChipDefaults.IconSize)) },
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
+            // qualità e formato dell'audio in riproduzione
+            val info = e.audioInfo.ifBlank { t?.let { sourceLabel(it) }.orEmpty() }
+            if (info.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, cs.outlineVariant),
+                ) {
+                    Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.GraphicEq, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                        Text(info, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
-                AssistChip(
-                    onClick = { fb.tapScreen(); env.showSignalPath = true },
-                    label = { Text(outputLabel(env), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    leadingIcon = { Icon(Icons.Filled.Headphones, null, Modifier.size(AssistChipDefaults.IconSize)) },
-                    modifier = Modifier.weight(1f, fill = false),
-                )
             }
         }
     }

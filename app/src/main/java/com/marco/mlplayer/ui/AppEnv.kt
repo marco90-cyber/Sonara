@@ -11,7 +11,7 @@ import com.marco.mlplayer.util.AppLog
 import kotlinx.coroutines.launch
 
 /** Pagine a tutto schermo sopra alle sezioni (si chiudono con la freccia o il tasto indietro). */
-enum class Overlay { None, Log, Analyzer, Output, Lyrics, Cover, Tags }
+enum class Overlay { None, Log, Analyzer, Lyrics, Cover, Tags }
 
 /** Sezioni della barra di navigazione in basso. */
 enum class Tab(val label: String) {
@@ -60,8 +60,6 @@ object AppearanceScreen : Screen()
 /** Impostazioni (pagina principale, con i gruppi di MLTheme). */
 object SettingsHomeScreen : Screen()
 
-/** Percorso del segnale e opzioni d'uscita (USB esclusiva, diretta, bit-perfect). */
-object SignalPathScreen : Screen()
 
 class Entry(val screen: Screen) {
     val listState = LazyListState()
@@ -105,8 +103,6 @@ class AppEnv(val app: MLPlayerApp) {
     var tab by mutableStateOf(Tab.Home)
     var overlay by mutableStateOf(Overlay.None)
 
-    /** Pannello "Percorso del segnale" aperto (dalle informazioni sulla qualità nel lettore). */
-    var showSignalPath by mutableStateOf(false)
 
     /** Coda di riproduzione aperta (foglio dal basso nel lettore). */
     var showQueue by mutableStateOf(false)

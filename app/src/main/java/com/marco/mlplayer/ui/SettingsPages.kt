@@ -42,14 +42,6 @@ fun SettingsHome(env: AppEnv) {
                 env.feedback.tapScreen(); env.select(Tab.Eq)
             }
             MLNavRow("Riproduzione", "Mescola, ripeti, uscita adattiva", icon = Icons.Filled.PlayCircle) { go(env.playbackScreen()) }
-            MLNavRow(
-                "Percorso del segnale",
-                "USB esclusiva, uscita diretta, bit-perfect",
-                icon = Icons.Filled.Route
-            ) { go(SignalPathScreen) }
-            MLNavRow("Uscita audio", "Dispositivi, flusso e DSP in uso", icon = Icons.Filled.Headphones) {
-                env.feedback.tapScreen(); env.overlay = Overlay.Output
-            }
             MLNavRow("Analizzatore", "Spettro, livelli, fase e PPM", icon = Icons.Filled.Timeline) {
                 env.feedback.tapScreen(); env.overlay = Overlay.Analyzer
             }

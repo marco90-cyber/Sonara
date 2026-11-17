@@ -93,6 +93,7 @@ class AudioEngine(
     private var runtimeSampleRate = 0
     private var runtimePcmBits = 0
     private var runtimeBitrate = 0
+    private var runtimeCodec = ""
     private var controllerFuture: Any? = null
 
     init {
@@ -196,6 +197,13 @@ class AudioEngine(
                         val f = g.getTrackFormat(0)
                         runtimeSampleRate = if (f.sampleRate > 0) f.sampleRate else 0
                         runtimeBitrate = if (f.bitrate > 0) f.bitrate / 1000 else 0
+                        runtimeCodec = listOf(
+                            when (f.containerMimeType) { "audio/mp4" -> "M4A"; "audio/webm" -> "WebM"; else -> "" },
+                            when (f.sampleMimeType) {
+                                "audio/mp4a-latm" -> "AAC"; "audio/opus" -> "Opus"; "audio/vorbis" -> "Vorbis"
+                                "audio/flac" -> "FLAC"; "audio/mpeg" -> "MP3"; else -> ""
+                            },
+                        ).filter { it.isNotBlank() }.joinToString(" ")
                         runtimePcmBits = when (f.pcmEncoding) {
                             C.ENCODING_PCM_16BIT -> 16
                             C.ENCODING_PCM_24BIT -> 24
@@ -315,7 +323,8 @@ class AudioEngine(
         val bits = if (t.bits > 0) t.bits else runtimePcmBits
         hiResNow = t.isHiResFile || sr > 48000 || runtimePcmBits > 16
         val parts = ArrayList<String>()
-        parts.add(t.formatLabel)
+        val fmt = t.formatLabel.ifBlank { runtimeCodec }
+        if (fmt.isNotBlank()) parts.add(fmt)
         if (sr > 0) parts.add(if (sr % 1000 == 0) "${sr / 1000} kHz" else String.format("%.1f kHz", sr / 1000.0))
         if (bits > 0) parts.add("$bits bit")
         val br = if (t.bitrateKbps > 0) t.bitrateKbps else runtimeBitrate
@@ -367,6 +376,7 @@ class AudioEngine(
         runtimeSampleRate = 0
         runtimePcmBits = 0
         runtimeBitrate = 0
+        runtimeCodec = ""
         consecutiveErrors = 0
     }
 
@@ -379,6 +389,7 @@ class AudioEngine(
         runtimeSampleRate = 0
         runtimePcmBits = 0
         runtimeBitrate = 0
+        runtimeCodec = ""
         consecutiveErrors = 0
         val start = startIndex.coerceIn(0, tracks.lastIndex)
         player.shuffleModeEnabled = shuffle

@@ -86,7 +86,6 @@ fun MenuPage(env: AppEnv, nav: Nav) {
             when (val s = e.screen) {
                 SettingsHomeScreen -> SettingsHome(env)
                 AppearanceScreen -> AppearancePage(env, onBack)
-                SignalPathScreen -> MLSettingsScaffold("Percorso del segnale", onBack) { SignalPathView(env) }
                 is MenuScreen -> SettingsList(env, e, s, onBack)
             }
         }
