@@ -213,12 +213,16 @@ class AppEnv(val app: MLPlayerApp) {
             else -> null
         }
 
+    /** Sezione da cui si è arrivati al lettore: il tasto indietro ci riporta lì. */
+    private var tabBeforePlayer = Tab.Home
+
     fun select(t: Tab) {
         if (tab == t) currentNav?.popToRoot()
+        if (t == Tab.NowPlaying && tab != Tab.NowPlaying) tabBeforePlayer = tab
         tab = t
     }
 
-    /** Tasto indietro: chiude coda e pagine sopra, poi risale nei menu, poi torna al lettore. */
+    /** Tasto indietro: chiude coda e pagine sopra, poi risale nei menu, poi torna alla Home; dal lettore torna a dove eri. */
     fun back(): Boolean {
         if (showQueue) {
             showQueue = false
@@ -233,8 +237,13 @@ class AppEnv(val app: MLPlayerApp) {
             return true
         }
         if (currentNav?.pop() == true) return true
-        if (tab != Tab.NowPlaying) {
-            tab = Tab.NowPlaying
+        if (tab == Tab.NowPlaying) {
+            // dal lettore si torna a dove si era (Home di solito), non si esce dall'app
+            tab = tabBeforePlayer.takeIf { it != Tab.NowPlaying } ?: Tab.Home
+            return true
+        }
+        if (tab != Tab.Home) {
+            tab = Tab.Home
             return true
         }
         return false
@@ -268,6 +277,7 @@ class AppEnv(val app: MLPlayerApp) {
 
     fun openNowPlaying() {
         overlay = Overlay.None
+        if (tab != Tab.NowPlaying) tabBeforePlayer = tab
         tab = Tab.NowPlaying
     }
 
