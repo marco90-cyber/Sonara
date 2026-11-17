@@ -107,6 +107,15 @@ class Settings(context: Context) {
         foldersRaw = folders.filter { it != uri }.joinToString("\n")
     }
 
+    // Playlist importate
+    /** Controlla ogni tanto se le playlist importate sono cambiate sul servizio di origine. */
+    var importAutoRefresh by BoolPref(sp, "import_auto_refresh", false)
+    /** Ogni quante ore (6, 12, 24, 48, 168). */
+    var importRefreshHours by IntPref(sp, "import_refresh_hours", 24)
+    var importWifiOnly by BoolPref(sp, "import_wifi_only", true)
+    /** Avvisa con una notifica quando un controllo periodico cambia una playlist. */
+    var importNotify by BoolPref(sp, "import_notify", true)
+
     /** Cartella (albero SAF) dove Sonara salva i brani scaricati. */
     var downloadDir by StringPref(sp, "download_dir", "")
 

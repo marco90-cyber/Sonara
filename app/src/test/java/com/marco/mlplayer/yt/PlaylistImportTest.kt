@@ -72,4 +72,18 @@ class PlaylistImportTest {
         val raw = Raw("Hurt", "Johnny Cash", 218)
         assertEquals("a", PlaylistImport.best(raw, listOf(item("Johnny Cash - Hurt", "Topic", 217, "a")))?.videoId)
     }
+
+    @Test
+    fun keyIgnoresVersionAndCase() {
+        val a = Raw("Bohemian Rhapsody - Remastered 2011", "Queen", 355)
+        val b = Raw("BOHEMIAN RHAPSODY", "queen", 354)
+        assertEquals(PlaylistImport.rawKey(a), PlaylistImport.rawKey(b))
+        assertFalse(PlaylistImport.rawKey(a) == PlaylistImport.rawKey(Raw("Bohemian Rhapsody", "Panic! At The Disco", 300)))
+    }
+
+    @Test
+    fun subtitleShowsMissingTracks() {
+        assertEquals("Importata da Deezer · 45 brani", PlaylistImport.subtitle(Source.Deezer, 45, 45))
+        assertEquals("Importata da Spotify · 40 di 45 brani", PlaylistImport.subtitle(Source.Spotify, 40, 45))
+    }
 }

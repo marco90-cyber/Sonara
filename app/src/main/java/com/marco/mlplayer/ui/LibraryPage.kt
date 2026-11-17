@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
@@ -151,6 +152,7 @@ internal fun CollectionState(
     onOpen: (Yt.Entry) -> Unit = {},
     circle: Boolean = false,
     bookmark: Yt.Entry? = null,
+    onRefresh: (() -> Unit)? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     when {
@@ -166,7 +168,7 @@ internal fun CollectionState(
             BackRow(title, onBack)
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nessun brano", color = cs.onSurfaceVariant) }
         }
-        else -> CollectionView(env, title, subtitle, thumb, tracks, onBack, shelves, onOpen, circle, bookmark)
+        else -> CollectionView(env, title, subtitle, thumb, tracks, onBack, shelves, onOpen, circle, bookmark, onRefresh)
     }
 }
 
@@ -181,7 +183,7 @@ private fun BackRow(title: String, onBack: () -> Unit) {
 @Composable
 private fun CollectionView(
     env: AppEnv, title: String, subtitle: String, thumb: String, tracks: List<Yt.Item>, onBack: () -> Unit,
-    shelves: List<YtApi.Shelf>, onOpen: (Yt.Entry) -> Unit, circle: Boolean, bookmark: Yt.Entry?,
+    shelves: List<YtApi.Shelf>, onOpen: (Yt.Entry) -> Unit, circle: Boolean, bookmark: Yt.Entry?, onRefresh: (() -> Unit)?,
 ) {
     val cs = MaterialTheme.colorScheme
     val cover = thumb.ifBlank { tracks.firstOrNull()?.cover.orEmpty() }
@@ -236,6 +238,11 @@ private fun CollectionView(
                         )
                     }
                 }
+                if (onRefresh != null) {
+                    FilledTonalIconButton(onClick = onRefresh) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Aggiorna dalla playlist originale")
+                    }
+                }
                 if (bookmark != null) {
                     val saved = env.app.ytStore.isSaved(bookmark.browseId)
                     FilledTonalIconButton(onClick = {
@@ -280,6 +287,7 @@ private fun SavedSection(env: AppEnv) {
             onOpen = { openYtEntry(env, it, LibUi.trail) },
             circle = top.kind == Yt.Kind.Artists,
             bookmark = top,
+            onRefresh = if (top.browseId.startsWith("imp:")) ({ refreshImported(env, top, LibUi.trail) }) else null,
         )
         return
     }

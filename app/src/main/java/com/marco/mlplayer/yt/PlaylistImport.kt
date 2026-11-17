@@ -204,36 +204,69 @@ object PlaylistImport {
     fun best(raw: Raw, candidates: List<Yt.Item>): Yt.Item? =
         candidates.map { it to score(raw, it) }.filter { it.second >= MIN_SCORE }.maxByOrNull { it.second }?.first
 
-    /** Cerca [raw] su YouTube Music. Bloccante. */
-    fun match(raw: Raw): Yt.Item? =
-        runCatching { best(raw, Yt.search("${raw.title} ${raw.artist}".trim(), maxPages = 1)) }
-            .onFailure { AppLog.w(TAG, "Ricerca di \"${raw.title}\" non riuscita: ${it.message}") }
-            .getOrNull()
+    /** Chiave stabile di un brano di Spotify o Deezer: serve a riconoscerlo negli aggiornamenti senza cercarlo di nuovo. */
+    fun rawKey(raw: Raw): String = norm(raw.title, dropSuffix = true) + "|" + norm(raw.artist)
 
-    class Imported(val meta: Meta, val tracks: List<Yt.Item>, val total: Int)
+    /** Cerca [raw] su YouTube Music, con un secondo tentativo; se la rete manca lancia l'eccezione (un brano non trovato non è un errore). Bloccante. */
+    private fun matchStrict(raw: Raw): Yt.Item? {
+        val q = "${raw.title} ${raw.artist}".trim()
+        val found = try {
+            Yt.search(q, maxPages = 1)
+        } catch (e: Exception) {
+            Thread.sleep(1000)
+            Yt.search(q, maxPages = 1)
+        }
+        return best(raw, found)
+    }
 
     /**
-     * Legge la playlist e trova i brani su YouTube Music. [progress] riceve il nome (appena noto) e i brani trovati finora
-     * insieme a quanti ne ha già provati e al totale. Bloccante: da chiamare fuori dal thread principale.
+     * Una playlist letta e abbinata: [tracks] sono i brani trovati su YouTube Music, [total] quelli dell'origine,
+     * [keys] dice per ogni brano dell'origine quale video è stato scelto ("" = non trovato).
      */
-    fun import(ref: Ref, progress: (Meta, List<Yt.Item>, Int, Int) -> Unit): Imported {
+    class Imported(val meta: Meta, val tracks: List<Yt.Item>, val total: Int, val keys: Map<String, String>)
+
+    /**
+     * Legge la playlist e trova i brani su YouTube Music. I brani già noti ([knownKeys] e [knownItems], da un'importazione precedente)
+     * non vengono cercati di nuovo. [progress] riceve il nome (appena noto), i brani trovati finora, quanti ne ha provati e il totale.
+     * Bloccante: da chiamare fuori dal thread principale; lancia un'eccezione se la lettura o la rete falliscono.
+     */
+    fun import(
+        ref: Ref,
+        knownKeys: Map<String, String> = emptyMap(),
+        knownItems: Map<String, Yt.Item> = emptyMap(),
+        progress: (Meta, List<Yt.Item>, Int, Int) -> Unit = { _, _, _, _ -> },
+    ): Imported {
         if (ref.source == Source.YouTube) {
             val tracks = YtApi.playlistTracks("VL${ref.id}")
+            if (tracks.isEmpty()) throw IOException("YouTube: playlist vuota o non leggibile")
             val m = Yt.playlistMeta(ref.id)
-            val meta = Meta(m?.first ?: "Playlist YouTube", "", m?.second.orEmpty().ifBlank { tracks.firstOrNull()?.cover.orEmpty() })
+            val meta = Meta(m?.first ?: "Playlist YouTube", "", m?.second.orEmpty().ifBlank { tracks.first().cover })
             progress(meta, tracks, tracks.size, tracks.size)
-            return Imported(meta, tracks, tracks.size)
+            return Imported(meta, tracks, tracks.size, emptyMap())
         }
         val f = if (ref.source == Source.Deezer) fetchDeezer(ref.id) else fetchSpotify(ref.id)
+        if (f.tracks.isEmpty()) throw IOException("${ref.source.label}: nessun brano letto")
         val found = ArrayList<Yt.Item>()
         val seen = HashSet<String>()
+        val keys = LinkedHashMap<String, String>()
         progress(f.meta, found, 0, f.tracks.size)
         f.tracks.forEachIndexed { i, raw ->
-            match(raw)?.let { if (seen.add(it.videoId)) found.add(it) }
+            val key = rawKey(raw)
+            val known = knownKeys[key]
+            val item = when {
+                known == "" -> null
+                known != null && knownItems[known] != null -> knownItems[known]
+                else -> matchStrict(raw).also { Thread.sleep(120) }
+            }
+            keys[key] = item?.videoId.orEmpty()
+            if (item != null && seen.add(item.videoId)) found.add(item)
             progress(f.meta, found.toList(), i + 1, f.tracks.size)
-            Thread.sleep(120)
         }
         AppLog.i(TAG, "${ref.source.label} ${ref.id}: ${found.size} su ${f.tracks.size} brani trovati")
-        return Imported(f.meta, found, f.tracks.size)
+        return Imported(f.meta, found, f.tracks.size, keys)
     }
+
+    /** Il sottotitolo di una playlist importata, per la Home e la sua pagina. */
+    fun subtitle(source: Source, found: Int, total: Int): String =
+        if (found == total) "Importata da ${source.label} · $total brani" else "Importata da ${source.label} · $found di $total brani"
 }

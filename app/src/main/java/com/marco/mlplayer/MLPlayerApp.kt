@@ -42,6 +42,18 @@ class MLPlayerApp : Application() {
         ytImports = com.marco.mlplayer.yt.YtImports(this)
         com.marco.mlplayer.yt.YtDownloads.init(this)
         com.marco.mlplayer.yt.YtBackup.init(this)
+        // l'app è visibile se almeno un'activity è avviata: a importazione finita in background si avvisa con una notifica
+        registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+            private var started = 0
+            override fun onActivityStarted(activity: android.app.Activity) { started++; com.marco.mlplayer.yt.ImportRunner.visible = true }
+            override fun onActivityStopped(activity: android.app.Activity) { started--; com.marco.mlplayer.yt.ImportRunner.visible = started > 0 }
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
+        com.marco.mlplayer.yt.ImportScheduler.apply(this)
         feedback = Feedback(this, settings)
         engine = AudioEngine(this, settings, library)
         engine.connectService()

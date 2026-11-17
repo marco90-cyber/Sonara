@@ -5,6 +5,8 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -13,6 +15,8 @@ import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.runtime.Composable
 import com.marco.mlplayer.AppUpdate
 import com.marco.mlplayer.AppUpdateStatus
+import com.marco.mlplayer.yt.ImportRunner
+import com.marco.mlplayer.yt.ImportScheduler
 import com.marco.mltheme.MLChoiceRow
 import com.marco.mltheme.MLDependent
 import com.marco.mltheme.MLGroup
@@ -63,6 +67,39 @@ fun SettingsHome(env: AppEnv) {
                     ?: "Non impostata: scegli dove salvare i brani offline",
                 icon = Icons.Filled.Download,
             ) { env.actions?.pickDownloadFolder() }
+        }
+        MLGroup("Playlist importate") {
+            MLSwitchRow(
+                "Aggiorna da sole", "Controlla se le playlist di Spotify, Deezer e YouTube sono cambiate, anche con l'app chiusa",
+                s.importAutoRefresh, icon = Icons.Filled.Sync,
+            ) { s.importAutoRefresh = it; ImportScheduler.apply(env.app) }
+            MLDependent(s.importAutoRefresh) {
+                MLChoiceRow(
+                    "Ogni quanto",
+                    listOf("6" to "6 ore", "12" to "12 ore", "24" to "1 giorno", "48" to "2 giorni", "168" to "1 settimana"),
+                    s.importRefreshHours.toString(),
+                ) { s.importRefreshHours = it.toInt(); ImportScheduler.apply(env.app) }
+                MLSwitchRow("Solo con il Wi-Fi", "Niente traffico dati mobili", s.importWifiOnly) {
+                    s.importWifiOnly = it; ImportScheduler.apply(env.app)
+                }
+                MLSwitchRow("Avvisa dei cambiamenti", "Una notifica quando una playlist cambia", s.importNotify) { s.importNotify = it }
+            }
+            MLNavRow(
+                "Aggiorna ora",
+                env.app.ytImports.lastCheck.takeIf { it > 0 }?.let { "Ultimo controllo: " + android.text.format.DateUtils.getRelativeTimeSpanString(it) }
+                    ?: "Nessuna playlist ancora controllata",
+                icon = Icons.Filled.Refresh,
+            ) {
+                env.feedback.tapScreen()
+                if (env.app.ytImports.all.isEmpty()) env.message = "Non ci sono playlist importate"
+                else {
+                    env.message = "Aggiorno le playlist importate…"
+                    ImportRunner.launch(env.app) {
+                        val c = ImportRunner.refreshAll(env.app).filter { it.any }
+                        env.message = if (c.isEmpty()) "Le playlist sono già aggiornate" else "${c.size} playlist aggiornate"
+                    }
+                }
+            }
         }
         MLGroup("App") {
             MLNavRow(

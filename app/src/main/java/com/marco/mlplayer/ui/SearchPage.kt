@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.util.mmss
+import com.marco.mlplayer.yt.ImportRunner
 import com.marco.mlplayer.yt.PlaylistImport
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
@@ -101,13 +102,13 @@ object YtUi {
 /** Apre un artista, album o playlist sopra la pagina attuale (con il suo elenco di brani). */
 fun openYtEntry(env: AppEnv, e: Yt.Entry, trail: MutableList<Yt.Entry> = YtUi.trail) {
     trail.add(e)
-    if (YtUi.details.containsKey(e.browseId)) return
-    YtUi.errors.remove(e.browseId)
     val ref = PlaylistImport.refOf(e.browseId)
     if (ref != null) {
         openImported(env, e, ref, trail)
         return
     }
+    if (YtUi.details.containsKey(e.browseId)) return
+    YtUi.errors.remove(e.browseId)
     env.app.appScope.launch {
         val r = withContext(Dispatchers.IO) {
             runCatching {
@@ -126,43 +127,71 @@ fun openYtEntry(env: AppEnv, e: Yt.Entry, trail: MutableList<Yt.Entry> = YtUi.tr
     }
 }
 
-/** Playlist di Spotify, Deezer o YouTube: già importata si apre subito, altrimenti si importa mostrando i brani man mano. */
+/** Playlist di Spotify, Deezer o YouTube: già importata si apre subito (con l'elenco salvato), altrimenti si importa mostrando i brani man mano. */
 private fun openImported(env: AppEnv, e: Yt.Entry, ref: PlaylistImport.Ref, trail: MutableList<Yt.Entry>) {
     env.app.ytImports.find(ref.importId)?.let {
+        YtUi.errors.remove(e.browseId)
         YtUi.details[e.browseId] = YtApi.Detail(it.tracks, emptyList())
         return
     }
     if (!YtUi.importing.add(e.browseId)) return
+    YtUi.errors.remove(e.browseId)
     fun show(title: String, sub: String, thumb: String) {
         val i = trail.indexOfFirst { it.browseId == e.browseId }
         if (i >= 0) trail[i] = e.copy(title = title, subtitle = sub, thumb = thumb.ifBlank { e.thumb })
     }
-    env.app.appScope.launch {
-        val r = withContext(Dispatchers.IO) {
-            runCatching {
-                PlaylistImport.import(ref) { meta, found, done, total ->
-                    show(meta.name, "Importo da ${ref.source.label}… $done/$total", meta.cover)
-                    if (found.isNotEmpty()) YtUi.details[e.browseId] = YtApi.Detail(found.toList(), emptyList())
-                }
+    // gira in coda con la notifica di avanzamento: continua anche se esci dalla pagina o chiudi l'app
+    ImportRunner.launch(env.app) {
+        try {
+            val imp = ImportRunner.importPlaylist(env.app, ref) { meta, found, done, total ->
+                show(meta.name, "Importo da ${ref.source.label}… $done/$total", meta.cover)
+                if (found.isNotEmpty()) YtUi.details[e.browseId] = YtApi.Detail(found.toList(), emptyList())
             }
-        }
-        YtUi.importing.remove(e.browseId)
-        r.onSuccess { res ->
-            if (res.tracks.isEmpty()) {
-                YtUi.details.remove(e.browseId)
-                YtUi.errors[e.browseId] = "Non ho trovato nessun brano di questa playlist su YouTube Music."
-                return@onSuccess
-            }
-            val sub = if (res.tracks.size == res.total) "Importata da ${ref.source.label} · ${res.total} brani"
-            else "Importata da ${ref.source.label} · ${res.tracks.size} di ${res.total} brani"
-            val done = Yt.Entry(Yt.Kind.Playlists, ref.importId, res.meta.name, sub, res.meta.cover)
-            YtUi.details[e.browseId] = YtApi.Detail(res.tracks, emptyList())
-            env.app.ytImports.add(done, res.tracks)
-            show(res.meta.name, sub, res.meta.cover)
-        }.onFailure {
-            AppLog.e("Importa", "Importazione da ${ref.source.label} non riuscita", it)
+            YtUi.details[e.browseId] = YtApi.Detail(imp.tracks, emptyList())
+            show(imp.entry.title, imp.entry.subtitle, imp.entry.thumb)
+        } catch (ex: Exception) {
+            AppLog.e("Importa", "Importazione da ${ref.source.label} non riuscita", ex)
             YtUi.details.remove(e.browseId)
-            YtUi.errors[e.browseId] = "Non riesco a leggere questa playlist: dev'essere pubblica e il link giusto (dettagli nel log)."
+            YtUi.errors[e.browseId] = when (ex) {
+                is ImportRunner.NoTracks -> ex.message.orEmpty()
+                is java.util.concurrent.CancellationException -> "Importazione interrotta."
+                else -> "Non riesco a leggere questa playlist: dev'essere pubblica e il link giusto (dettagli nel log)."
+            }
+        } finally {
+            YtUi.importing.remove(e.browseId)
+        }
+    }
+}
+
+/** Rilegge una playlist importata dal servizio di origine: aggiunge i brani nuovi, toglie quelli spariti, segue il nuovo ordine. */
+internal fun refreshImported(env: AppEnv, e: Yt.Entry, trail: MutableList<Yt.Entry>) {
+    val imp = env.app.ytImports.find(e.browseId) ?: return
+    if (!YtUi.importing.add(e.browseId)) return
+    fun show(sub: String, entry: Yt.Entry = e) {
+        val i = trail.indexOfFirst { it.browseId == e.browseId }
+        if (i >= 0) trail[i] = entry.copy(subtitle = sub)
+    }
+    env.message = "Aggiorno la playlist…"
+    ImportRunner.launch(env.app) {
+        try {
+            val c = ImportRunner.refreshPlaylist(env.app, imp) { _, _, done, total -> show("Aggiorno… $done/$total") }
+            val now = env.app.ytImports.find(e.browseId)
+            if (now != null) {
+                YtUi.details[e.browseId] = YtApi.Detail(now.tracks, emptyList())
+                show(now.entry.subtitle, now.entry)
+            }
+            env.message = when {
+                !c.any -> "Già aggiornata"
+                else -> "Aggiornata: " + listOfNotNull(
+                    c.added.takeIf { it > 0 }?.let { "+$it" }, c.removed.takeIf { it > 0 }?.let { "−$it" }, "nuovo ordine".takeIf { c.reordered },
+                ).joinToString(" ")
+            }
+        } catch (ex: Exception) {
+            AppLog.e("Importa", "Aggiornamento non riuscito", ex)
+            show(imp.entry.subtitle, imp.entry)
+            env.message = if (ex is ImportRunner.NoTracks) ex.message.orEmpty() else "Aggiornamento non riuscito: controlla la connessione"
+        } finally {
+            YtUi.importing.remove(e.browseId)
         }
     }
 }
@@ -279,6 +308,7 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
                     onOpen = { openYtEntry(env, it) },
                     circle = open.kind == Yt.Kind.Artists,
                     bookmark = open,
+                    onRefresh = if (open.browseId.startsWith("imp:")) ({ refreshImported(env, open, YtUi.trail) }) else null,
                 )
             }
             YtUi.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
