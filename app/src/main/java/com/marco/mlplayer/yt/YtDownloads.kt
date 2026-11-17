@@ -177,10 +177,25 @@ object YtDownloads {
         ui.postDelayed({ notifyPending = false; onChange?.invoke() }, 400)
     }
 
+    private var pendingItems: List<Yt.Item>? = null
+    private var pendingGroup: Group? = null
+
+    /** Dopo la scelta della cartella: avvia il download rimasto in attesa (o lo scarta se la scelta è stata annullata). */
+    fun resumePending(folderChosen: Boolean) {
+        val items = pendingItems ?: return
+        val g = pendingGroup
+        pendingItems = null; pendingGroup = null
+        if (folderChosen && hasFolder()) download(items, g)
+    }
+
     /** Scarica [items] nel gruppo [group] (playlist/album/artista); senza gruppo vanno tra i brani singoli. */
     fun download(items: List<Yt.Item>, group: Group? = null) {
         if (!hasFolder()) {
-            app.env.message = "Scegli prima la cartella dei download nelle Impostazioni"
+            // nessuna cartella scelta: la chiedo ora e il download parte appena la scelgo
+            pendingItems = items
+            pendingGroup = group
+            app.env.message = "Scegli la cartella dove salvare i download"
+            app.env.actions?.pickDownloadFolder()
             return
         }
         val g = group ?: Group(SINGLES, "Songs", "Brani singoli", "")

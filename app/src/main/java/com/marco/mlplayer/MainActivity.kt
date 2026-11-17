@@ -19,6 +19,7 @@ import com.marco.mlplayer.ui.Actions
 import com.marco.mlplayer.ui.PlayerApp
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.YtBackup
+import com.marco.mlplayer.yt.YtDownloads
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity(), Actions {
@@ -35,10 +36,14 @@ class MainActivity : ComponentActivity(), Actions {
 
     private val downloadPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-            if (uri == null) return@registerForActivityResult
             val app = application as MLPlayerApp
+            if (uri == null) {
+                YtDownloads.resumePending(false)
+                return@registerForActivityResult
+            }
             if (!takeAccess(uri)) {
                 app.env.message = "Questa cartella non si può usare per i download"
+                YtDownloads.resumePending(false)
                 return@registerForActivityResult
             }
             AppLog.i("Download", "Cartella download: $uri")
@@ -47,6 +52,7 @@ class MainActivity : ComponentActivity(), Actions {
                 val restored = runCatching { YtBackup.restore(uri.toString()) }.getOrNull()
                 app.settings.downloadDir = uri.toString()
                 app.env.message = restored ?: "Cartella dei download impostata"
+                YtDownloads.resumePending(true)
                 YtBackup.schedule()
             }
         }
