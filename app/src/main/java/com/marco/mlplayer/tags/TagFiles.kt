@@ -118,9 +118,13 @@ object TagFiles {
         if (!canEdit(t.ext)) return WriteResult.Unsupported(t.ext)
         val target = writableUri(ctx, t.uri)
             ?: return WriteResult.NoAccess(treeOf(settings, t.uri) ?: return WriteResult.Failed("Cartella del brano non trovata"))
+        return rewrite(ctx, t.uri, target, t.ext, t.title, edit)
+    }
+
+    private fun rewrite(ctx: Context, srcUri: String, target: Uri, ext: String, name: String, edit: (Tag) -> Unit): WriteResult {
         var tmp: File? = null
         return try {
-            val src = copyIn(ctx, t.uri, t.ext)
+            val src = copyIn(ctx, srcUri, ext)
             tmp = src
             val af = AudioFileIO.read(src)
             val tag = af.tagOrCreateAndSetDefault
@@ -130,15 +134,25 @@ object TagFiles {
                 ?: ctx.contentResolver.openOutputStream(target, "w")
                 ?: return WriteResult.Failed("Il file non si può aprire in scrittura")
             out.use { o -> src.inputStream().use { it.copyTo(o) } }
-            AppLog.i("Tag", "Tag scritti in ${t.title}")
+            AppLog.i("Tag", "Tag scritti in $name")
             WriteResult.Ok
         } catch (e: Throwable) {
-            AppLog.e("Tag", "Scrittura non riuscita in ${t.title}", e)
+            AppLog.e("Tag", "Scrittura non riuscita in $name", e)
             WriteResult.Failed(e.message ?: e.javaClass.simpleName)
         } finally {
             tmp?.delete()
         }
     }
+
+    /** Scrive titolo, artista, album e copertina in un file appena scaricato da Sonara (m4a). */
+    fun tagDownloaded(ctx: Context, uri: String, title: String, artist: String, album: String, coverJpeg: ByteArray?): WriteResult =
+        rewrite(ctx, uri, Uri.parse(uri), "m4a", title) { tag ->
+            tag.put(FieldKey.TITLE, title)
+            tag.put(FieldKey.ARTIST, artist)
+            tag.put(FieldKey.ALBUM_ARTIST, artist)
+            tag.put(FieldKey.ALBUM, album)
+            if (coverJpeg != null) setCover(tag, coverJpeg)
+        }
 
     private fun Tag.put(key: FieldKey, value: String) {
         val v = value.trim()
@@ -167,6 +181,10 @@ object TagFiles {
 
     /** Sostituisce la copertina incorporata (JPEG). */
     fun writeCover(ctx: Context, settings: Settings, t: Track, jpeg: ByteArray): WriteResult = write(ctx, settings, t) { tag ->
+        setCover(tag, jpeg)
+    }
+
+    private fun setCover(tag: Tag, jpeg: ByteArray) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
         val art = ArtworkFactory.getNew().apply {

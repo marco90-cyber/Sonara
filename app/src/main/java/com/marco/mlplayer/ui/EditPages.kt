@@ -118,6 +118,13 @@ fun TrackMenuSheet(env: AppEnv) {
         if (!t.uri.startsWith("yt:")) {
             MenuEntry(Icons.Filled.Image, "Copertina", "Cerca su internet o scegli dalla galleria") { env.openPage(Overlay.Cover) }
             MenuEntry(Icons.Filled.Edit, "Modifica tag", "Titolo, artista, album, anno, genere…") { env.openPage(Overlay.Tags) }
+        } else {
+            // i tag si modificano solo nei brani scaricati: si lavora sul file
+            val ft = com.marco.mlplayer.yt.YtDownloads.fileTrack(t)
+            if (ft != null) {
+                MenuEntry(Icons.Filled.Image, "Copertina", "Nel file scaricato: cerca su internet o scegli dalla galleria") { env.openPage(Overlay.Cover, ft) }
+                MenuEntry(Icons.Filled.Edit, "Modifica tag", "Nel file scaricato: titolo, artista, album, anno…") { env.openPage(Overlay.Tags, ft) }
+            }
         }
         Spacer(Modifier.height(24.dp))
     }

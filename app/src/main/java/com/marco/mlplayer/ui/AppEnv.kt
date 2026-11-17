@@ -181,6 +181,7 @@ class AppEnv(val app: MLPlayerApp) {
                 if (stop) break
             }
             if (ok.isNotEmpty()) {
+                com.marco.mlplayer.yt.YtDownloads.refreshMeta(ok)
                 library.refreshTracks(ok)
                 val byUri = library.tracks.filter { it.uri in ok }.associateBy { it.uri }
                 engine.replaceTracks(byUri, ok.toSet())

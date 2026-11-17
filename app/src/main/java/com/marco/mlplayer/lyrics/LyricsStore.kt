@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import com.marco.mlplayer.data.Settings
 import com.marco.mlplayer.data.Track
 import com.marco.mlplayer.tags.TagFiles
+import com.marco.mlplayer.yt.YtDownloads
 import com.marco.mlplayer.tags.WriteResult
 import com.marco.mlplayer.util.AppLog
 import kotlinx.coroutines.Dispatchers
@@ -122,7 +123,7 @@ class LyricsStore(private val ctx: Context, private val settings: Settings) {
         cacheFile(t).takeIf { it.exists() }?.readText()?.takeIf { it.isNotBlank() }?.let {
             return Lrc.parse(it, meta.getString("name_${t.id}", "Salvato") ?: "Salvato")
         }
-        TagFiles.readLyrics(ctx, t)?.let { text ->
+        TagFiles.readLyrics(ctx, YtDownloads.fileTrack(t) ?: t)?.let { text ->
             val l = Lrc.parse(text, SRC_FILE)
             if (!l.isEmpty) {
                 sources[SRC_FILE] = SourceState.Found(l)
@@ -220,8 +221,10 @@ class LyricsStore(private val ctx: Context, private val settings: Settings) {
             cacheFile(t).writeText(l.toLrc())
             meta.edit().putString("name_${t.id}", l.source).putString("src_${t.id}", srcId).apply()
         }
-        if (settings.lyricsSaveToFile && srcId != SRC_FILE && TagFiles.canEdit(t.ext)) {
-            lock.withLock { pending[t.uri] = t to l.toLrc() }
+        // brano scaricato: il testo si scrive nel file scaricato
+        val target = YtDownloads.fileTrack(t) ?: t
+        if (settings.lyricsSaveToFile && srcId != SRC_FILE && TagFiles.canEdit(target.ext)) {
+            lock.withLock { pending[target.uri] = target to l.toLrc() }
         }
     }
 

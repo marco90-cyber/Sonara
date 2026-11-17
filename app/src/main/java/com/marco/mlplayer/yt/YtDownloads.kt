@@ -310,6 +310,43 @@ object YtDownloads {
         }
     }
 
+    /** Titolo, artista, album e copertina dentro il file, così li vedono anche gli altri lettori. */
+    private fun tagFile(uri: String, item: Yt.Item, g: Group?) {
+        val cover = runCatching {
+            http.newCall(Request.Builder().url(item.cover).build()).execute().use { r -> if (r.isSuccessful) r.body?.bytes() else null }
+        }.getOrNull()?.takeIf { it.size > 1000 }
+        val album = if (g?.kind == "Albums") g.title else ""
+        runCatching { com.marco.mlplayer.tags.TagFiles.tagDownloaded(app, uri, item.title, item.artist, album, cover) }
+            .onFailure { AppLog.w(TAG, "Tag non scritti: ${item.title}", it) }
+    }
+
+    /** Il brano come file scaricato (indirizzo del file, formato m4a), se i tag ci si possono scrivere. */
+    fun fileTrack(t: com.marco.mlplayer.data.Track): com.marco.mlplayer.data.Track? {
+        if (!t.uri.startsWith("yt:")) return null
+        val e = entries.firstOrNull { it.item.videoId == t.uri.removePrefix("yt:") } ?: return null
+        val name = e.path.ifBlank { runCatching { DocumentFile.fromSingleUri(app, Uri.parse(e.uri))?.name }.getOrNull().orEmpty() }
+        val ext = name.substringAfterLast('.', "").lowercase()
+        if (!com.marco.mlplayer.tags.TagFiles.canEdit(ext)) return null
+        return t.copy(uri = e.uri, ext = ext)
+    }
+
+    /** Dopo una modifica dei tag: titolo e artista dell'elenco seguono quelli scritti nel file. */
+    suspend fun refreshMeta(uris: Collection<String>) {
+        val updates = withContext(Dispatchers.IO) {
+            entries.filter { it.uri in uris }.mapNotNull { e ->
+                val d = com.marco.mlplayer.tags.TagFiles.read(app, Yt.toTrack(e.item).copy(uri = e.uri, ext = "m4a")) ?: return@mapNotNull null
+                if (d.title.isBlank() && d.artist.isBlank()) null
+                else e to e.item.copy(title = d.title.ifBlank { e.item.title }, artist = d.artist.ifBlank { e.item.artist })
+            }
+        }
+        if (updates.isEmpty()) return
+        for ((e, item) in updates) {
+            val i = entries.indexOf(e)
+            if (i >= 0) entries[i] = Entry(item, e.uri, e.group, e.path)
+        }
+        save()
+    }
+
     private class Cancelled : IOException("Annullato")
 
     fun safeName(s: String) = s.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\s+"), " ").trim().take(120)
@@ -324,7 +361,7 @@ object YtDownloads {
             val name = safeName(g.title).ifBlank { g.id }
             root.findFile(name)?.takeIf { it.isDirectory } ?: root.createDirectory(name) ?: throw IOException("Impossibile creare la cartella")
         }
-        val res = Yt.resolve(item.videoId)
+        val res = Yt.resolve(item.videoId, preferMp4 = true)
         val webm = res.mime.contains("webm")
         val ext = if (webm) "webm" else "m4a"
         val mime = if (webm) "audio/webm" else "audio/mp4"
@@ -363,6 +400,7 @@ object YtDownloads {
                 }
             }
             AppLog.i(TAG, "Scaricato: ${item.title} (${pos / 1024} KB)")
+            if (!webm) tagFile(doc.uri.toString(), item, g)
             val rel = (if (dir == root) "" else "${dir.name}/") + (doc.name ?: "$base.$ext")
             return Fetched(doc.uri.toString(), rel)
         } catch (e: Exception) {

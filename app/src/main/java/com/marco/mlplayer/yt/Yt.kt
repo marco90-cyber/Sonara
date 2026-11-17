@@ -155,9 +155,10 @@ object Yt {
             ?: Regex("youtu\\.be/([A-Za-z0-9_-]{6,})").find(url)?.groupValues?.get(1)
 
     /** Link audio valido adesso per il video (con cache fino alla scadenza). Bloccante. */
-    fun resolve(videoId: String): Resolved {
+    fun resolve(videoId: String, preferMp4: Boolean = false): Resolved {
         val now = System.currentTimeMillis()
-        cache[videoId]?.takeIf { it.expiresAtMs - 90_000 > now }?.let { return it }
+        val key = if (preferMp4) "$videoId#m4a" else videoId
+        cache[key]?.takeIf { it.expiresAtMs - 90_000 > now }?.let { return it }
         init()
         val info = try {
             StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
@@ -165,9 +166,12 @@ object Yt {
             AppLog.e(TAG, "Estrazione non riuscita per $videoId", e)
             throw IOException("YouTube: estrazione non riuscita per $videoId", e)
         }
-        val best = info.audioStreams
+        val usable = info.audioStreams
             .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && !it.content.isNullOrBlank() }
             .filter { !it.content.contains("xtags=drc") }
+        // per i download preferisco l'AAC (m4a): ci si possono scrivere i tag e lo leggono tutti i lettori
+        val pool = if (preferMp4) usable.filter { it.format?.mimeType?.contains("mp4") == true }.ifEmpty { usable } else usable
+        val best = pool
             .maxByOrNull { maxOf(it.averageBitrate, it.bitrate) }
             ?: throw IOException("YouTube: nessun flusso audio per $videoId").also {
                 AppLog.w(TAG, "Nessun flusso audio progressivo per $videoId (${info.audioStreams.size} flussi)")
@@ -176,7 +180,7 @@ object Yt {
             ?: (now + 5 * 60_000)
         val kbps = maxOf(best.averageBitrate, best.bitrate).let { if (it > 2000) it / 1000 else it }
         val r = Resolved(best.content, expire, best.format?.mimeType.orEmpty(), kbps)
-        cache[videoId] = r
+        cache[key] = r
         AppLog.i(TAG, "Stream pronto per $videoId: ${r.mime} ${r.bitrateKbps} kbps")
         return r
     }
