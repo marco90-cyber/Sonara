@@ -27,6 +27,23 @@ class FadingPlayer(
     private var fade = 1f
     private var job: Runnable? = null
 
+    /** True mentre un nostro play() sta avviando il player (la dissolvenza la gestiamo noi). */
+    private var inOwnCall = false
+
+    init {
+        // Se la riproduzione parte senza passare da qui (es. si sceglie un brano dalla lista) dopo una pausa
+        // il volume potrebbe essere rimasto a zero: si sentirebbe il silenzio con i VU meter in movimento.
+        exo.addListener(object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                if (playWhenReady && !inOwnCall && (fade < 1f || job != null)) {
+                    cancel()
+                    fade = 1f
+                    refreshVolume()
+                }
+            }
+        })
+    }
+
     /** True mentre il volume scende prima di una pausa (il player risulta ancora in riproduzione). */
     var pausing = false
         private set
@@ -94,11 +111,17 @@ class FadingPlayer(
     }
 
     override fun play() {
-        if (!enabled()) { direct(); super.play(); return }
+        if (!enabled()) {
+            direct()
+            inOwnCall = true
+            try { super.play() } finally { inOwnCall = false }
+            return
+        }
         pausing = false
         val resuming = !exo.playWhenReady
         if (resuming) { cancel(); fade = 0f; refreshVolume() }
-        super.play()
+        inOwnCall = true
+        try { super.play() } finally { inOwnCall = false }
         if (resuming) fadeInWhenReady(FADE_IN_MS) else ramp(1f, FADE_IN_MS)
     }
 
