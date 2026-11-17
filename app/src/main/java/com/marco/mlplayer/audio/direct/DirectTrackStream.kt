@@ -129,10 +129,6 @@ class DirectTrackStream(private val attributes: AudioAttributes) {
         }
     }
 
-    fun routedDeviceName(): String? = runCatching { track?.routedDevice?.productName?.toString() }.getOrNull()
-
-    fun routedDeviceType(): Int? = runCatching { track?.routedDevice?.type }.getOrNull()
-
     fun isAlive(): Boolean = track != null && !dead && track?.state == AudioTrack.STATE_INITIALIZED
 
     /**
@@ -202,8 +198,6 @@ class DirectTrackStream(private val attributes: AudioAttributes) {
         return pending != null || writtenFrames() > playedFrames()
     }
 
-    fun underruns(): Long = runCatching { track?.underrunCount?.toLong() ?: 0L }.getOrDefault(0L)
-
     fun release() {
         val target = track
         track = null
@@ -261,17 +255,6 @@ class DirectTrackStream(private val attributes: AudioAttributes) {
             InternalDirectStream.ENC_I32 -> AudioFormat.ENCODING_PCM_32BIT
             InternalDirectStream.ENC_FLOAT -> AudioFormat.ENCODING_PCM_FLOAT
             else -> null
-        }
-
-        /**
-         * Wire encoding to ask for, UAPP-style: 24-bit packed for everything
-         * up to 24 real bits (16-bit is widened, losslessly), true 32-bit
-         * integer kept as is. Float (lossy codecs) is rounded to 24-bit.
-         */
-        fun wireEncodingFor(srcEncoding: Int, effectiveBits: Int): Int = when (srcEncoding) {
-            InternalDirectStream.ENC_I32 ->
-                if (effectiveBits <= 24) InternalDirectStream.ENC_I24 else InternalDirectStream.ENC_I32
-            else -> InternalDirectStream.ENC_I24
         }
 
         /**

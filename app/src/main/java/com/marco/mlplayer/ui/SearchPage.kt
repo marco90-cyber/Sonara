@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
@@ -64,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.util.mmss
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtDownloads
@@ -91,7 +91,7 @@ object YtUi {
     fun back() { if (trail.isNotEmpty()) trail.removeAt(trail.lastIndex) }
 
     fun reset() {
-        query = ""; searched = ""; songs = null; entries = emptyMap(); error = null; trail.clear()
+        query = ""; searched = ""; songs = null; entries = emptyMap(); error = null; loading = false; trail.clear()
     }
 }
 
@@ -117,8 +117,6 @@ fun openYtEntry(env: AppEnv, e: Yt.Entry, trail: MutableList<Yt.Entry> = YtUi.tr
         }
     }
 }
-
-private fun fmt(sec: Long): String = "%d:%02d".format(sec / 60, sec % 60)
 
 /** Sezione "Cerca": brani, artisti, album e playlist di YouTube Music, suonati dal player di Sonara. */
 @Composable
@@ -147,8 +145,10 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
                     }
                 }
             }
+            // una ricerca superata da una più recente non deve toccare lo stato di quella nuova
+            if (YtUi.searched != q) return@launch
             YtUi.loading = false
-            r.onSuccess { n -> if (n == 0 && YtUi.searched == q) YtUi.error = "Nessun risultato" }
+            r.onSuccess { n -> if (n == 0) YtUi.error = "Nessun risultato" }
                 .onFailure {
                     AppLog.e("YouTube", "Ricerca non riuscita", it)
                     YtUi.error = "Ricerca non riuscita. Controlla la connessione (dettagli nel log)."
@@ -334,7 +334,7 @@ fun YtRow(env: AppEnv, item: Yt.Item, onClick: () -> Unit) {
         }
         if (item.durationSec > 0) {
             Spacer(Modifier.width(8.dp))
-            Text(fmt(item.durationSec), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            Text(mmss(item.durationSec * 1000), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
         }
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Altre azioni") }

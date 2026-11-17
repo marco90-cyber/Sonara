@@ -120,22 +120,6 @@ class InternalDirectStream : AutoCloseable {
             else -> 0
         }
 
-        fun bitsOf(encoding: Int): Int = when (encoding) {
-            ENC_I16 -> 16
-            ENC_I24 -> 24
-            ENC_I32 -> 32
-            ENC_FLOAT -> 32
-            else -> 0
-        }
-
-        fun labelOf(encoding: Int): String = when (encoding) {
-            ENC_I16 -> "16-bit"
-            ENC_I24 -> "24-bit"
-            ENC_I32 -> "32-bit int"
-            ENC_FLOAT -> "32-bit float"
-            else -> "?"
-        }
-
         /** Probe needs no instance: it opens and closes a throwaway stream. */
         fun probe(channelCount: Int = 2): Probe? {
             if (!NATIVE_AVAILABLE) return null

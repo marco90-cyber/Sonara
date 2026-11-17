@@ -4,26 +4,27 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import com.marco.mlplayer.MLPlayerApp
 import com.marco.mlplayer.audio.DownloadService
+import com.marco.mlplayer.data.Track
+import com.marco.mlplayer.tags.TagFiles
 import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.util.AsyncFileWriter
+import com.marco.mlplayer.util.Net
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Brani scaricati nella cartella scelta dall'utente, raggruppati per playlist, album o artista
@@ -33,6 +34,8 @@ import java.util.concurrent.TimeUnit
 object YtDownloads {
     private const val TAG = "Download"
     const val SINGLES = "singles"
+    private val UNSAFE_CHARS = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]")
+    private val SPACES = Regex("\\s+")
 
     /** Un gruppo di download: playlist, album, artista oppure i brani singoli. */
     class Group(val id: String, val kind: String, val title: String, val thumb: String)
@@ -58,7 +61,7 @@ object YtDownloads {
     private var batchTotal = 0
     private var batchDone = 0
     private val ui = Handler(Looper.getMainLooper())
-    private var notifyPending = false
+    private val notifyPending = AtomicBoolean(false)
 
     /** Chiamato (sul thread principale) quando cambia lo stato: lo usa la notifica. */
     var onChange: (() -> Unit)? = null
@@ -67,48 +70,43 @@ object YtDownloads {
     val active get() = working
     fun snapshot() = Snapshot(batchTotal, batchDone, current?.item?.title.orEmpty(), current?.let { progress[it.item.videoId] }?.coerceAtLeast(0) ?: 0)
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val http = Net.withReadTimeout(readTimeoutSec = 30)
 
     private val indexFile get() = File(app.filesDir, "yt_downloads.json")
+    private val writer by lazy { AsyncFileWriter(indexFile, "yt-downloads") }
+
+    private fun parseGroup(o: JSONObject) = Group(o.getString("id"), o.optString("kind"), o.optString("title"), o.optString("thumb"))
+
+    /** Una voce dell'indice; [uri] se dato sostituisce quello scritto nel file (ripristino da copia di riserva). */
+    private fun parseEntry(o: JSONObject, uri: String = o.optString("uri")): Entry? {
+        val item = Yt.Item.fromJson(o) ?: return null
+        return if (uri.isBlank()) null else Entry(item, uri, o.optString("group", SINGLES), o.optString("path"))
+    }
 
     fun init(app: MLPlayerApp) {
         this.app = app
         runCatching {
             if (!indexFile.exists()) return
             val text = indexFile.readText().trim()
-            val arr = if (text.startsWith("[")) JSONArray(text) else JSONObject(text).optJSONArray("entries") ?: JSONArray()
-            if (!text.startsWith("[")) {
-                JSONObject(text).optJSONArray("groups")?.let { g ->
-                    for (i in 0 until g.length()) {
-                        val o = g.getJSONObject(i)
-                        groups.add(Group(o.getString("id"), o.optString("kind"), o.optString("title"), o.optString("thumb")))
-                    }
-                }
-            }
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val item = Yt.Item(o.getString("id"), o.optString("title"), o.optString("artist"), o.optLong("dur"), o.optString("thumb"))
-                entries.add(Entry(item, o.getString("uri"), o.optString("group", SINGLES), o.optString("path")))
-            }
+            // formato vecchio: solo l'elenco dei brani; nuovo: oggetto con "entries" e "groups"
+            val root = if (text.startsWith("[")) null else JSONObject(text)
+            val arr = root?.optJSONArray("entries") ?: if (root == null) JSONArray(text) else JSONArray()
+            root?.optJSONArray("groups")?.let { g -> for (i in 0 until g.length()) groups.add(parseGroup(g.getJSONObject(i))) }
+            for (i in 0 until arr.length()) parseEntry(arr.getJSONObject(i))?.let { entries.add(it) }
         }.onFailure { AppLog.w(TAG, "Elenco download non leggibile", it) }
     }
 
     fun exportJson(): String {
         val a = JSONArray()
-        entries.forEach {
-            a.put(JSONObject().put("id", it.item.videoId).put("title", it.item.title).put("artist", it.item.artist)
-                .put("dur", it.item.durationSec).put("thumb", it.item.thumb).put("uri", it.uri).put("group", it.group).put("path", it.path))
-        }
+        entries.forEach { a.put(it.item.toJson().put("uri", it.uri).put("group", it.group).put("path", it.path)) }
         val g = JSONArray()
         groups.forEach { g.put(JSONObject().put("id", it.id).put("kind", it.kind).put("title", it.title).put("thumb", it.thumb)) }
         return JSONObject().put("entries", a).put("groups", g).toString()
     }
 
+    /** Scrive l'indice fuori dal thread principale (in coda, in modo atomico) e aggiorna la copia di riserva. */
     private fun save() {
-        runCatching { indexFile.writeText(exportJson()) }
+        writer.write(exportJson()) { AppLog.w(TAG, "Elenco download non salvato", it) }
         YtBackup.schedule()
     }
 
@@ -121,12 +119,7 @@ object YtDownloads {
             d?.listFiles()?.mapNotNull { f -> f.name?.let { it to f } }?.toMap() ?: emptyMap()
         }
         val gs = ArrayList<Group>()
-        o.optJSONArray("groups")?.let { g ->
-            for (i in 0 until g.length()) {
-                val x = g.getJSONObject(i)
-                gs.add(Group(x.getString("id"), x.optString("kind"), x.optString("title"), x.optString("thumb")))
-            }
-        }
+        o.optJSONArray("groups")?.let { g -> for (i in 0 until g.length()) gs.add(parseGroup(g.getJSONObject(i))) }
         val found = ArrayList<Entry>()
         val arr = o.optJSONArray("entries") ?: JSONArray()
         for (i in 0 until arr.length()) {
@@ -135,8 +128,7 @@ object YtDownloads {
             if (path.isBlank()) continue
             val dir = path.substringBeforeLast('/', "")
             val doc = filesIn(dir)[path.substringAfterLast('/')] ?: continue
-            val item = Yt.Item(x.getString("id"), x.optString("title"), x.optString("artist"), x.optLong("dur"), x.optString("thumb"))
-            found.add(Entry(item, doc.uri.toString(), x.optString("group", SINGLES), path))
+            parseEntry(x, doc.uri.toString())?.let { found.add(it) }
         }
         return withContext(Dispatchers.Main) {
             gs.forEach { g -> if (groups.none { it.id == g.id }) groups.add(g) }
@@ -172,9 +164,8 @@ object YtDownloads {
     }
 
     private fun changed() {
-        if (notifyPending) return
-        notifyPending = true
-        ui.postDelayed({ notifyPending = false; onChange?.invoke() }, 400)
+        if (!notifyPending.compareAndSet(false, true)) return
+        ui.postDelayed({ notifyPending.set(false); onChange?.invoke() }, 400)
     }
 
     private var pendingItems: List<Yt.Item>? = null
@@ -201,16 +192,16 @@ object YtDownloads {
         val g = group ?: Group(SINGLES, "Songs", "Brani singoli", "")
         if (groups.none { it.id == g.id }) groups.add(0, g)
         var added = 0
-        for (it in items) {
-            if (entries.any { e -> e.item.videoId == it.videoId && e.group == g.id } || isBusy(it.videoId)) continue
-            val other = entries.firstOrNull { e -> e.item.videoId == it.videoId }
+        for (item in items) {
+            if (entries.any { e -> e.item.videoId == item.videoId && e.group == g.id } || isBusy(item.videoId)) continue
+            val other = entries.firstOrNull { e -> e.item.videoId == item.videoId }
             if (other != null) {              // già scaricato altrove: lo ricollego, senza riscaricarlo
-                entries.add(0, Entry(it, other.uri, g.id, other.path))
+                entries.add(0, Entry(item, other.uri, g.id, other.path))
                 continue
             }
-            progress[it.videoId] = -1
-            jobGroup[it.videoId] = g.id
-            queue.addLast(Job(it, g.id))
+            progress[item.videoId] = -1
+            jobGroup[item.videoId] = g.id
+            queue.addLast(Job(item, g.id))
             batchTotal++
             added++
         }
@@ -278,8 +269,6 @@ object YtDownloads {
         }
     }
 
-    private suspend fun delay(ms: Long) = kotlinx.coroutines.delay(ms)
-
     private fun pump() {
         if (working) return
         working = true
@@ -316,17 +305,17 @@ object YtDownloads {
             http.newCall(Request.Builder().url(item.cover).build()).execute().use { r -> if (r.isSuccessful) r.body?.bytes() else null }
         }.getOrNull()?.takeIf { it.size > 1000 }
         val album = if (g?.kind == "Albums") g.title else ""
-        runCatching { com.marco.mlplayer.tags.TagFiles.tagDownloaded(app, uri, item.title, item.artist, album, cover) }
+        runCatching { TagFiles.tagDownloaded(app, uri, item.title, item.artist, album, cover) }
             .onFailure { AppLog.w(TAG, "Tag non scritti: ${item.title}", it) }
     }
 
     /** Il brano come file scaricato (indirizzo del file, formato m4a), se i tag ci si possono scrivere. */
-    fun fileTrack(t: com.marco.mlplayer.data.Track): com.marco.mlplayer.data.Track? {
+    fun fileTrack(t: Track): Track? {
         if (!t.uri.startsWith("yt:")) return null
         val e = entries.firstOrNull { it.item.videoId == t.uri.removePrefix("yt:") } ?: return null
         val name = e.path.ifBlank { runCatching { DocumentFile.fromSingleUri(app, Uri.parse(e.uri))?.name }.getOrNull().orEmpty() }
         val ext = name.substringAfterLast('.', "").lowercase()
-        if (!com.marco.mlplayer.tags.TagFiles.canEdit(ext)) return null
+        if (!TagFiles.canEdit(ext)) return null
         return t.copy(uri = e.uri, ext = ext)
     }
 
@@ -334,7 +323,7 @@ object YtDownloads {
     suspend fun refreshMeta(uris: Collection<String>) {
         val updates = withContext(Dispatchers.IO) {
             entries.filter { it.uri in uris }.mapNotNull { e ->
-                val d = com.marco.mlplayer.tags.TagFiles.read(app, Yt.toTrack(e.item).copy(uri = e.uri, ext = "m4a")) ?: return@mapNotNull null
+                val d = TagFiles.read(app, Yt.toTrack(e.item).copy(uri = e.uri, ext = "m4a")) ?: return@mapNotNull null
                 if (d.title.isBlank() && d.artist.isBlank()) null
                 else e to e.item.copy(title = d.title.ifBlank { e.item.title }, artist = d.artist.ifBlank { e.item.artist })
             }
@@ -349,7 +338,7 @@ object YtDownloads {
 
     private class Cancelled : IOException("Annullato")
 
-    fun safeName(s: String) = s.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\s+"), " ").trim().take(120)
+    fun safeName(s: String) = s.replace(UNSAFE_CHARS, " ").replace(SPACES, " ").trim().take(120)
 
     /** Scarica a blocchi con Range (come fa il sito, evita i rallentamenti) e restituisce l'uri del file. */
     private fun fetch(job: Job): Fetched {
@@ -376,7 +365,7 @@ object YtDownloads {
                     val end = pos + 4L * 1024 * 1024 - 1
                     val req = Request.Builder().url(res.url)
                         .header("Range", "bytes=$pos-$end")
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0")
+                        .header("User-Agent", Net.BROWSER_UA)
                         .build()
                     http.newCall(req).execute().use { r ->
                         if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
@@ -392,8 +381,11 @@ object YtDownloads {
                             if (n < 0) break
                             out.write(buf, 0, n)
                             got += n; pos += n
-                            progress[item.videoId] = (pos * 100 / total).toInt().coerceIn(0, 99)
-                            changed()
+                            val pct = (pos * 100 / total).toInt().coerceIn(0, 99)
+                            if (progress[item.videoId] != pct) {   // aggiorna solo quando la percentuale cambia
+                                progress[item.videoId] = pct
+                                changed()
+                            }
                         }
                         if (got <= 0) throw IOException("Flusso interrotto")
                     }

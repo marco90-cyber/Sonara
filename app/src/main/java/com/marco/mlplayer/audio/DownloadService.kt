@@ -28,6 +28,8 @@ class DownloadService : Service() {
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else startForeground(ID, n)
         YtDownloads.onChange = { refresh() }
+        // se i download sono già finiti prima che il servizio partisse, la notifica non deve restare appesa
+        if (!YtDownloads.active) refresh()
         return START_NOT_STICKY
     }
 

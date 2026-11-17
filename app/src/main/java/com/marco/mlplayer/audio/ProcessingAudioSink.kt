@@ -12,14 +12,10 @@ import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import com.marco.mlplayer.audio.direct.DirectOutputs
 import com.marco.mlplayer.audio.direct.DirectTrackStream
 import com.marco.mlplayer.audio.direct.InternalDirectStream
-import com.marco.mlplayer.audio.direct.PathStep
 import com.marco.mlplayer.audio.direct.Route
-import com.marco.mlplayer.audio.direct.SignalPath
 import com.marco.mlplayer.util.AppLog
-import com.marco.mlplayer.util.khz
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.Locale
 
 /**
  * Applica il DSP PRIMA del sink di Media3 e sceglie dove mandare il suono.
@@ -113,8 +109,6 @@ class ProcessingAudioSink(
         // apertura dell'uscita scelta (se non riesce si torna ad Android)
         var r = Route.Android
         var note = ""
-        var failure: com.marco.mlplayer.audio.direct.InternalDirectReason? = null
-        var probeSeen: InternalDirectStream.Probe? = null
         if (active && target != Route.Android) {
             when (target) {
                 Route.UsbExclusive -> {
@@ -133,24 +127,13 @@ class ProcessingAudioSink(
                             } else {
                                 t.release()
                                 note = "Android ha messo l'AudioTrack 24 bit nel mixer (nessuna uscita DIRECT)"
-                                failure = com.marco.mlplayer.audio.direct.InternalDirectReason.MIXED_BY_ANDROID
                             }
                         } else note = "AudioTrack 24 bit a ${fmt.sampleRate} Hz rifiutato"
                     }
                     if (r == Route.Android) {
-                        probeSeen = if (InternalDirectStream.nativeLoaded) InternalDirectStream.probe(fmt.channelCount) else null
                         r = openAAudio(inputFormat, fmt, bitPerfect)?.also { fmt = it.second }?.first ?: r
                     }
-                    if (r == Route.Android) {
-                        if (note.isEmpty()) note = "Uscita esclusiva AAudio non disponibile su questa uscita"
-                        failure = when {
-                            !InternalDirectStream.nativeLoaded -> com.marco.mlplayer.audio.direct.InternalDirectReason.NATIVE_MISSING
-                            monitor.kind == OutKind.Bluetooth -> com.marco.mlplayer.audio.direct.InternalDirectReason.BLUETOOTH
-                            probeSeen?.usable == false -> com.marco.mlplayer.audio.direct.InternalDirectReason.NO_AAUDIO
-                            failure != null -> failure
-                            else -> com.marco.mlplayer.audio.direct.InternalDirectReason.EXCLUSIVE_REFUSED
-                        }
-                    }
+                    if (r == Route.Android && note.isEmpty()) note = "Uscita esclusiva AAudio non disponibile su questa uscita"
                 }
                 else -> {}
             }
@@ -176,79 +159,6 @@ class ProcessingAudioSink(
         }
         if (note.isNotEmpty()) AppLog.w("Uscita", note)
         AppLog.i("Uscita", "Percorso: ${r.label}, ${fmt.sampleRate} Hz, ${encLabel(fmt.pcmEncoding)}, bit-perfect=$bitPerfect")
-        publishPath(inputFormat, fmt, raw, bitPerfect, note)
-        publishLw(inputFormat, fmt, raw, failure, probeSeen)
-    }
-
-    // ------------------------------------------------------------------ modello del percorso di LastWave
-
-    private fun encOf(e: Int) = when (e) {
-        C.ENCODING_PCM_16BIT -> InternalDirectStream.ENC_I16
-        C.ENCODING_PCM_24BIT -> InternalDirectStream.ENC_I24
-        C.ENCODING_PCM_32BIT -> InternalDirectStream.ENC_I32
-        else -> InternalDirectStream.ENC_FLOAT
-    }
-
-    private fun lwRoute(): com.marco.mlplayer.audio.direct.InternalRoute = when (monitor.kind) {
-        OutKind.Speaker -> com.marco.mlplayer.audio.direct.InternalRoute.SPEAKER
-        OutKind.Wired -> com.marco.mlplayer.audio.direct.InternalRoute.WIRED
-        OutKind.Bluetooth -> com.marco.mlplayer.audio.direct.InternalRoute.BLUETOOTH
-        OutKind.Usb -> com.marco.mlplayer.audio.direct.InternalRoute.USB
-        else -> com.marco.mlplayer.audio.direct.InternalRoute.OTHER
-    }
-
-    private fun publishLw(input: Format, out: Format, raw: Boolean, failure: com.marco.mlplayer.audio.direct.InternalDirectReason?, probe: InternalDirectStream.Probe?) {
-        try {
-            val srcBits = if (raw) bitsOf(input.pcmEncoding).let { if (input.pcmEncoding == C.ENCODING_PCM_FLOAT) 24 else it } else 16
-            val srcEnc = if (raw) encOf(input.pcmEncoding) else InternalDirectStream.ENC_I16
-            val routeName = monitor.name.ifBlank { monitor.kind.label }
-            val session = when (route) {
-                Route.DirectTrack -> com.marco.mlplayer.audio.direct.InternalDirectSession(
-                    route = lwRoute(), routeName = routeName,
-                    sourceRateHz = input.sampleRate, sourceEncoding = srcEnc, sourceBits = srcBits,
-                    deviceRateHz = out.sampleRate, deviceEncoding = InternalDirectStream.ENC_I24, deviceChannels = out.channelCount,
-                    resampled = out.sampleRate != input.sampleRate,
-                    formatConverted = srcEnc != InternalDirectStream.ENC_I24,
-                    formatLossless = srcBits <= 24,
-                    mmap = false, deviceBufferFrames = out.sampleRate / 2,
-                    backend = com.marco.mlplayer.audio.direct.InternalBackend.DIRECT_TRACK, directVerified = true,
-                )
-                Route.AAudio -> aaudio?.info()?.let { i ->
-                    com.marco.mlplayer.audio.direct.InternalDirectSession(
-                        route = lwRoute(), routeName = routeName,
-                        sourceRateHz = input.sampleRate, sourceEncoding = srcEnc, sourceBits = srcBits,
-                        deviceRateHz = i.sampleRateHz, deviceEncoding = i.encoding, deviceChannels = i.channelCount,
-                        resampled = i.sampleRateHz != input.sampleRate,
-                        formatConverted = srcEnc != i.encoding,
-                        formatLossless = InternalDirectStream.bitsOf(i.encoding) >= srcBits || i.encoding == InternalDirectStream.ENC_FLOAT,
-                        mmap = i.mmap, deviceBufferFrames = i.deviceBufferFrames,
-                        backend = com.marco.mlplayer.audio.direct.InternalBackend.MMAP, directVerified = true,
-                    )
-                }
-                else -> null
-            }
-            val wanted = outputs.directWanted
-            val reason = when {
-                session != null -> com.marco.mlplayer.audio.direct.InternalDirectReason.ACTIVE
-                !wanted -> null
-                outputs.usbAudioDevice() != null -> com.marco.mlplayer.audio.direct.InternalDirectReason.USB
-                Build.VERSION.SDK_INT < Build.VERSION_CODES.P -> com.marco.mlplayer.audio.direct.InternalDirectReason.ANDROID_TOO_OLD
-                else -> failure
-            }
-            val availability = com.marco.mlplayer.audio.direct.InternalDirectAvailability(
-                route = lwRoute(), routeName = routeName,
-                reason = reason ?: if (InternalDirectStream.nativeLoaded) com.marco.mlplayer.audio.direct.InternalDirectReason.AVAILABLE
-                    else com.marco.mlplayer.audio.direct.InternalDirectReason.NATIVE_MISSING,
-                probe = probe,
-            )
-            outputs.lw = com.marco.mlplayer.audio.direct.LwState(
-                valid = raw, sourceRateHz = input.sampleRate, sourceBits = srcBits, appRateHz = out.sampleRate,
-                dspOn = active && processor.info.active,
-                session = session, failure = if (session == null && wanted) reason else null, availability = availability,
-            )
-        } catch (e: Exception) {
-            AppLog.w("Uscita", "Modello del percorso non aggiornato", e)
-        }
     }
 
     private fun configureProcessor(inputFormat: Format): Format? = try {
@@ -503,7 +413,7 @@ class ProcessingAudioSink(
         aaudio = null
     }
 
-    // ------------------------------------------------------------------ percorso del segnale
+    // ------------------------------------------------------------------ utilità
 
     private fun encLabel(e: Int) = when (e) {
         C.ENCODING_PCM_16BIT -> "16 bit"
@@ -511,241 +421,5 @@ class ProcessingAudioSink(
         C.ENCODING_PCM_32BIT -> "32 bit"
         C.ENCODING_PCM_FLOAT -> "float 32 bit"
         else -> "codifica $e"
-    }
-
-    private fun bitsOf(e: Int) = when (e) {
-        C.ENCODING_PCM_16BIT -> 16
-        C.ENCODING_PCM_24BIT -> 24
-        C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 32
-        else -> 16
-    }
-
-    /** Pannello in stile LastWave: stessi nodi, stesse righe, valori presi da questo lettore. */
-    private fun buildReport(
-        input: Format, out: Format, raw: Boolean, bitPerfect: Boolean, bpReal: Boolean, resampled: Boolean, note: String,
-    ): com.marco.mlplayer.audio.direct.PathReport {
-        val s = outputs.dspSettings
-        val info = processor.info
-        val dspOn = active && info.active
-        val am = outputs.audioManager
-        val fpb = runCatching { am?.getProperty(android.media.AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)?.toInt() }.getOrNull() ?: 0
-        val mixRate = runCatching { am?.getProperty(android.media.AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toInt() }.getOrNull() ?: 48000
-        val outLat = when (route) {
-            Route.UsbExclusive -> 50
-            Route.DirectTrack -> 500
-            Route.AAudio -> aaudio?.info()?.let { if (it.sampleRateHz > 0) it.deviceBufferFrames * 1000 / it.sampleRateHz else 0 } ?: 0
-            Route.Android -> if (fpb > 0 && mixRate > 0) ((fpb * 1000L / mixRate) * 3).toInt().coerceAtLeast(20) else 75
-        }
-        val outBits = when (route) {
-            Route.UsbExclusive -> outputs.usb.activeWireBits().takeIf { it > 0 } ?: bitsOf(out.pcmEncoding)
-            Route.DirectTrack -> 24
-            Route.AAudio -> InternalDirectStream.bitsOf(aaudio?.info()?.encoding ?: -1).takeIf { it > 0 } ?: 32
-            Route.Android -> bitsOf(out.pcmEncoding)
-        }
-        val outRateHz = when (route) {
-            Route.UsbExclusive -> outputs.usb.currentRateHz().takeIf { it > 0 } ?: out.sampleRate
-            Route.AAudio -> aaudio?.info()?.sampleRateHz ?: out.sampleRate
-            else -> out.sampleRate
-        }
-        val platformBp = route == Route.Android && bitPerfect && outputs.usbBitPerfect.isConfigured()
-        val engine = when (route) {
-            Route.UsbExclusive -> "USB Exclusive Output"
-            Route.AAudio -> "Direct HAL (AAudio MMAP)"
-            Route.DirectTrack -> "Direct HAL (AudioTrack DIRECT)"
-            Route.Android -> if (platformBp) "Android Bit-Perfect Output" else "Android AudioTrack"
-        }
-        val hwVol = route == Route.UsbExclusive && outputs.usb.usesHardwareVolume()
-        val flags = ArrayList<String>()
-        if (raw && input.sampleRate == out.sampleRate) flags += "FOLLOW_SR"
-        flags += "TRACK_PLAYBACK"
-        if (!hwVol) flags += "NEEDS_VOL_UI"
-        flags += "PIPELINE64"
-        if (bpReal) flags += "PERFECTBITPERFECT"
-        if (route == Route.UsbExclusive) flags += "EXCLUSIVE"
-        if (route == Route.DirectTrack || route == Route.AAudio) flags += "DIRECT_HAL"
-        val vol = volume
-        val volDetail = when {
-            hwVol -> "Hardware Volume • 0.0 dB"
-            vol >= 0.9999f -> "0.0 dB (Unity Gain)"
-            else -> String.format(Locale.ROOT, "%.1f dB (%.3fx)", 20.0 * kotlin.math.log10(vol.toDouble().coerceAtLeast(0.0001)), vol)
-        }
-        val volMode = when {
-            hwVol -> "Hardware Volume"
-            route == Route.UsbExclusive || route == Route.AAudio -> "Software Volume"
-            else -> "System Volume"
-        }
-        val toneOn = s.master && s.tone && (s.bassDb > 0f || s.trebleDb > 0f)
-        val direct = route == Route.DirectTrack || route == Route.AAudio
-        val firstProblem = when {
-            !active -> "DSP non applicabile a questo formato"
-            resampled -> "Ricampionamento: ${input.sampleRate} → ${out.sampleRate} Hz"
-            route == Route.Android && !platformBp -> "Mixer di Android: il sistema può ricampionare e mixare"
-            route == Route.UsbExclusive && !outputs.usb.isClockMatched() -> "Clock del DAC diverso dal flusso"
-            vol < 0.9999f && !hwVol -> "Volume software sotto il 100%"
-            else -> note.ifEmpty { "Percorso da verificare" }
-        }
-        val verdictText = when {
-            bpReal -> "Percorso bit-perfect verificato — PCM intatto fino al DAC"
-            direct -> "Mixer di Android escluso — i campioni entrano nell'HAL invariati. Un DSP del produttore dopo l'HAL non è verificabile da Android."
-            !bitPerfect -> "Catena DSP: Bit-perfect disattivo — attivalo nelle Impostazioni"
-            else -> firstProblem
-        }
-        val (pill, level) = when {
-            bpReal -> "BIT-PERFECT" to 2
-            direct -> "DIRECT → HAL" to 1
-            route == Route.UsbExclusive -> "USB EXCLUSIVE" to 1
-            else -> "CONTROLLA PERCORSO" to 0
-        }
-        val endpoint = when (route) {
-            Route.DirectTrack -> "${out.sampleRate} Hz • 24-bit • AudioTrack DIRECT"
-            Route.AAudio -> aaudio?.info()?.let { "${it.sampleRateHz} Hz • ${InternalDirectStream.labelOf(it.encoding)}" + if (it.mmap) " • MMAP" else "" } ?: "—"
-            Route.UsbExclusive -> "$outRateHz Hz • $outBits-bit PCM"
-            Route.Android -> "—"
-        }
-        val directStatus = when {
-            direct -> "Attiva"
-            !outputs.directWanted -> "Spenta (Impostazioni › Percorso del segnale)"
-            note.isNotEmpty() -> note
-            else -> "Non usata su questa uscita"
-        }
-        val device = when (route) {
-            Route.UsbExclusive -> outputs.usbAudioDevice()?.productName ?: "DAC USB"
-            Route.DirectTrack -> directTrack?.routedDeviceName() ?: monitor.name
-            else -> monitor.name
-        }.orEmpty().ifBlank { "Android Default Output" }
-        return com.marco.mlplayer.audio.direct.PathReport(
-            valid = raw,
-            sourceRateHz = input.sampleRate,
-            sourceBits = if (raw) bitsOf(input.pcmEncoding).let { if (input.pcmEncoding == C.ENCODING_PCM_FLOAT) 24 else it } else 16,
-            dspRateHz = out.sampleRate,
-            dspSummary = if (dspOn) "Float64 • Active DSP" else "Float64/Float32 • No DSP",
-            dspOn = dspOn,
-            eqLine = if (dspOn && s.eq) if (s.eqMode == com.marco.mlplayer.audio.DspSettings.EQ_GRAPHIC) "Equalizer Mode: graphic (${s.bands}-band)" else "Equalizer Mode: parametric (${s.peq.count { it.on }} filters)" else "Equ Off • Balance (0%)",
-            toneLine = if (toneOn) String.format(Locale.ROOT, "Bass +%.1f dB • Treble +%.1f dB", s.bassDb, s.trebleDb) else "Tone Off",
-            crossfadeLine = "No fading / Short crossfade",
-            buffersLine = "2x (50 ms, ${(out.sampleRate * 0.05).toInt()} audioframes)",
-            dspLatencyMs = outLat * 2,
-            volumeMode = volMode,
-            volumeDetail = volDetail,
-            preampDb = if (dspOn) info.inputGainDb else 0f,
-            engineName = engine,
-            outRateHz = outRateHz,
-            outBits = outBits,
-            flags = flags,
-            outLatencyMs = outLat,
-            deviceName = device,
-            fidelity = when {
-                bpReal -> 100
-                route == Route.UsbExclusive -> 85
-                direct -> 80
-                else -> 65
-            },
-            dspScore = if (dspOn) "${info.stages}" else "—",
-            pill = pill,
-            pillLevel = level,
-            verdictText = verdictText,
-            usbExclusive = route == Route.UsbExclusive,
-            direct = direct,
-            routeName = monitor.kind.label + if (monitor.name.isNotBlank()) " • ${monitor.name}" else "",
-            directStatus = directStatus,
-            endpoint = endpoint,
-        )
-    }
-
-    private fun publishPath(input: Format, out: Format, raw: Boolean, bitPerfect: Boolean, note: String) {
-        try {
-            val steps = ArrayList<PathStep>()
-            steps.add(
-                PathStep(
-                    "Sorgente", if (raw) "${khz(input.sampleRate)} · ${encLabel(input.pcmEncoding)}" else (input.sampleMimeType ?: "?"),
-                    listOf("Canali" to "${input.channelCount}", "Decoder" to (input.codecs ?: input.sampleMimeType ?: "—")),
-                )
-            )
-            val info = processor.info
-            val resampled = out.sampleRate != input.sampleRate
-            val dspMain = when {
-                !active -> "Non applicato"
-                bitPerfect -> "Bit-perfect: bypass totale"
-                info.active -> "Attivo · ${info.stages} stadi"
-                else -> "Bypass (DSP spento)"
-            }
-            val dspDetails = ArrayList<Pair<String, String>>()
-            if (active) {
-                dspDetails.add("Calcolo" to "doppia precisione, ${encLabel(out.pcmEncoding)} in uscita")
-                dspDetails.add("Ricampionamento" to if (resampled) "soxr ${khz(input.sampleRate)} → ${khz(out.sampleRate)}" else "no (frequenza originale)")
-                if (info.modules.isNotEmpty()) dspDetails.add("Moduli" to info.modules.joinToString(", "))
-                if (info.active) dspDetails.add("Ingresso" to String.format(Locale.ITALY, "%+.1f dB (headroom %.1f dB)", info.inputGainDb, info.headroomDb))
-                if (info.latencyMs > 0f) dspDetails.add("Latenza" to String.format(Locale.ITALY, "%.1f ms", info.latencyMs))
-            }
-            steps.add(PathStep("DSP", dspMain, dspDetails, ok = if (bitPerfect) (active && !resampled) else null))
-            val volMain = when (route) {
-                Route.UsbExclusive -> if (outputs.usb.usesHardwareVolume()) "Volume hardware del DAC" else "Volume software (PCM scalato)"
-                Route.AAudio -> "Volume software (al 100% PCM intatto)"
-                else -> "Volume di sistema"
-            }
-            steps.add(PathStep("Volume", volMain, listOf("Livello app" to String.format(Locale.ITALY, "%.0f %%", volume * 100))))
-            val outDetails = ArrayList<Pair<String, String>>()
-            val outMain: String
-            var outOk: Boolean? = null
-            when (route) {
-                Route.UsbExclusive -> {
-                    val u = outputs.usb
-                    outMain = "USB esclusiva · ${khz(u.currentRateHz())} · ${u.activeWireBits()} bit sul cavo"
-                    outDetails.add("Mixer di Android" to "saltato (il DAC è gestito dall'app)")
-                    outDetails.add("Clock del DAC" to if (u.lastHardwareRateHz() > 0) khz(u.lastHardwareRateHz()) + if (u.isClockMatched()) " (coincide)" else " (diverso)" else "non letto")
-                    outOk = u.isClockMatched()
-                }
-                Route.DirectTrack -> {
-                    outMain = "AudioTrack DIRECT · ${khz(out.sampleRate)} · 24 bit"
-                    outDetails.add("Verifica" to "Android rifiuta il cambio di velocità: traccia non mixata")
-                    outOk = true
-                }
-                Route.AAudio -> {
-                    val i = aaudio?.info()
-                    outMain = "AAudio esclusiva · ${khz(i?.sampleRateHz ?: out.sampleRate)} · ${InternalDirectStream.labelOf(i?.encoding ?: -1)}"
-                    outDetails.add("MMAP" to if (i?.mmap == true) "sì (scrive nel buffer dell'HAL)" else "no")
-                    i?.let { outDetails.add("Buffer del dispositivo" to "${it.deviceBufferFrames} frame") }
-                    outOk = i?.mmap
-                }
-                Route.Android -> {
-                    outMain = "Android AudioTrack · ${khz(out.sampleRate)} · ${encLabel(out.pcmEncoding)}"
-                    outDetails.add("Mixer di Android" to "sì (il sistema può ricampionare)")
-                    if (bitPerfect) {
-                        val granted = outputs.usbBitPerfect.isConfigured()
-                        outDetails.add("Bit-perfect del mixer" to if (granted) "concesso (Android 14+)" else "non disponibile")
-                        outOk = granted
-                    }
-                }
-            }
-            if (note.isNotEmpty()) outDetails.add("Nota" to note)
-            steps.add(PathStep("Uscita", outMain, outDetails, outOk))
-            val devName = when (route) {
-                Route.UsbExclusive -> outputs.usbAudioDevice()?.productName ?: "DAC USB"
-                Route.DirectTrack -> directTrack?.routedDeviceName() ?: monitor.name
-                else -> monitor.name.ifBlank { monitor.kind.label }
-            }
-            steps.add(PathStep("Dispositivo", devName.ifBlank { monitor.kind.label }, listOf("Tipo" to monitor.kind.label)))
-            val bpReal = bitPerfect && active && !resampled && when (route) {
-                Route.UsbExclusive -> outputs.usb.isClockMatched() && (outputs.usb.usesHardwareVolume() || volume >= 0.9999f)
-                Route.DirectTrack -> true
-                Route.AAudio -> volume >= 0.9999f
-                Route.Android -> outputs.usbBitPerfect.isConfigured()
-            }
-            val verdict = when {
-                bpReal -> "Bit-perfect: il PCM arriva intatto all'uscita"
-                route != Route.Android -> "Mixer di Android saltato" + if (bitPerfect) " (bit-perfect non pieno: vedi i dettagli)" else ""
-                bitPerfect -> "Bit-perfect richiesto ma il suono passa dal mixer di Android"
-                else -> "Il suono passa dal mixer di Android"
-            }
-            val report = buildReport(input, out, raw, bitPerfect, bpReal, resampled, note)
-            outputs.underrunsProvider = when (route) {
-                Route.DirectTrack -> directTrack?.let { t -> { t.underruns() } }
-                Route.AAudio -> aaudio?.let { a -> { a.counters().getOrElse(2) { 0L } } }
-                else -> null
-            }
-            outputs.path = SignalPath(route, bitPerfect, steps, verdict, bpReal, report)
-        } catch (e: Exception) {
-            AppLog.w("Uscita", "Percorso del segnale non aggiornato", e)
-        }
     }
 }

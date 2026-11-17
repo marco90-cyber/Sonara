@@ -22,7 +22,7 @@ import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtDownloads
-import java.util.concurrent.ConcurrentHashMap
+import java.util.Collections
 import java.util.concurrent.Executors
 
 /**
@@ -36,12 +36,19 @@ class PlaybackService : MediaLibraryService() {
     private val main = Handler(Looper.getMainLooper())
 
     /** Brani conosciuti dalle ultime liste mostrate (per risolvere un id in un brano). */
-    private val pool = ConcurrentHashMap<String, Yt.Item>()
-    private val searches = ConcurrentHashMap<String, List<Yt.Item>>()
-    private val children = ConcurrentHashMap<String, List<Yt.Item>>()
+    private val pool = lru<String, Yt.Item>(3000)
+    private val searches = lru<String, List<Yt.Item>>(8)
+    private val children = lru<String, List<Yt.Item>>(12)
     @Volatile private var lastBrowsed: List<Yt.Item> = emptyList()
 
     private val app get() = application as MLPlayerApp
+
+    /** Mappa con un tetto: scarta le voci usate meno di recente, così il servizio non accumula liste all'infinito. */
+    private fun <K, V> lru(max: Int): MutableMap<K, V> = Collections.synchronizedMap(
+        object : LinkedHashMap<K, V>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?) = size > max
+        }
+    )
 
     override fun onCreate() {
         super.onCreate()

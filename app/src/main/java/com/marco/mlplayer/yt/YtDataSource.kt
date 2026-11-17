@@ -1,11 +1,14 @@
 package com.marco.mlplayer.yt
 
 import android.content.Context
+import android.net.Uri
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import com.marco.mlplayer.util.Net
 import java.io.IOException
 
 /**
@@ -14,9 +17,9 @@ import java.io.IOException
  */
 @UnstableApi
 object YtDataSource {
-    fun factory(context: Context): androidx.media3.datasource.DataSource.Factory {
+    fun factory(context: Context): DataSource.Factory {
         val http = DefaultHttpDataSource.Factory()
-            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0")
+            .setUserAgent(Net.BROWSER_UA)
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(20_000)
@@ -26,7 +29,7 @@ object YtDataSource {
             val id = spec.uri.schemeSpecificPart.orEmpty()
             if (id.isBlank()) throw IOException("Indirizzo YouTube non valido")
             YtDownloads.fileUri(id)?.let { return@Resolver spec.withUri(it) }
-            spec.withUri(android.net.Uri.parse(Yt.resolve(id).url))
+            spec.withUri(Uri.parse(Yt.resolve(id).url))
         })
     }
 }

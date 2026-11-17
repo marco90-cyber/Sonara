@@ -46,7 +46,6 @@ class ExclusiveUsbOutput(
     @Volatile private var configuredRateHz = 0
     @Volatile private var listeningGain = 1f
     @Volatile private var softwareGainValue = 1f
-    @Volatile private var lastHardwareRate = 0
 
     private val usbAudio = UsbAudioDevice.getInstance(appContext)
     private var stream: UsbAudioStream? = null
@@ -83,7 +82,6 @@ class ExclusiveUsbOutput(
 
     private val sessionBlockedDevices = java.util.concurrent.ConcurrentHashMap<String, String>()
     @Volatile private var currentDeviceKey: String? = null
-    @Volatile private var sessionSummary: String = ""
 
     private val audioManager: AudioManager? =
         appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -131,42 +129,7 @@ class ExclusiveUsbOutput(
         }
     }
 
-    fun isWanted(): Boolean = wanted
-
-    /**
-     * Software (PCM-scaled) volume instead of the DAC's hardware Feature Unit.
-     * Switching to software parks the hardware level at 0 dB first so the two
-     * attenuations never stack. Switching back takes effect at the next start.
-     */
-    fun setForceSoftwareVolume(value: Boolean) {
-        synchronized(stateLock) {
-            if (forceSoftwareVolume == value) return
-            forceSoftwareVolume = value
-            if (value && active && hardwareVolume) {
-                val fv = featureVolume
-                hardwareVolume = false
-                lastAppliedCombined = Float.NaN
-                applyVolumeLocked()
-                runCatching { fv?.setNormalized(1f) }
-                Log.i(TAG, "volume forced to software; Feature Unit parked at 0 dB")
-            }
-        }
-    }
-
-    fun isForceSoftwareVolume(): Boolean = forceSoftwareVolume
-
-    /** True when the attached DAC exposes a usable hardware volume (even if not used). */
-    fun hasHardwareVolumeControl(): Boolean = active && featureVolume != null && (hardwareVolume || featureVolumeAttached)
-
-    @Volatile private var featureVolumeAttached = false
-
     fun isActive(): Boolean = active
-
-    fun isClockMatched(): Boolean = active && clockMatched
-
-    fun isClockFallbackActive(): Boolean = active && currentFallbackNegotiated
-
-    fun usesHardwareVolume(): Boolean = active && hardwareVolume
 
     /**
      * PCM software gain for exclusive output. 1 when a verified Feature Unit
@@ -174,13 +137,7 @@ class ExclusiveUsbOutput(
      */
     fun softwareGain(): Float = if (!active || hardwareVolume) 1f else softwareGainValue
 
-    fun currentRateHz(): Int = if (active) configuredRateHz else 0
-
     fun activeWireBits(): Int = if (active) activeWireBits else 0
-
-    fun lastHardwareRateHz(): Int = lastHardwareRate
-
-    fun supportedHardwareRatesHz(): List<Int> = usbAudio.querySupportedSampleRates()
 
     private fun pickPlayableHardwareRate(sourceHz: Int, supportedHz: List<Int>): Int? {
         val supported = supportedHz.filter { it > 0 }.toSet()
@@ -216,8 +173,6 @@ class ExclusiveUsbOutput(
 
     fun framesWritten(): Long = stream?.framesWritten ?: 0L
 
-    fun isPaused(): Boolean = paused
-
     /**
      * Pause/resume ISO writes without tearing down the USB session or
      * discarding already-decoded PCM in [pcmQueue]. [flush] clears the queue
@@ -230,38 +185,6 @@ class ExclusiveUsbOutput(
         }
         synchronized(pcmLock) {
             pcmLock.notifyAll()
-        }
-    }
-
-    /** True while the isochronous stream is still accepting PCM. */
-    fun isStreamAlive(): Boolean = active && stream?.isAlive == true
-
-    /**
-     * True while PCM is actively queued/writing to the DAC or a USB write
-     * completed within the last 750 ms. Prevents the UI seekbar from advancing
-     * on wall-clock time when the USB pipeline is starved.
-     */
-    fun isStreamingAudio(): Boolean {
-        if (!active || paused || stream?.isAlive != true) return false
-        if (writingInProgress || queuedBytes > 0) return true
-        val last = lastWriteElapsedMs
-        return last > 0L && (SystemClock.elapsedRealtime() - last) in 0L..750L
-    }
-
-    /** Re-anchor the Media3 clock after an explicit seek. */
-    fun noteSeek(positionUs: Long) {
-        val timeUs = positionUs.coerceAtLeast(0L)
-        val rate = configuredRateHz.coerceAtLeast(1)
-        val targetFrames = timeUs * rate / C.MICROS_PER_SECOND
-        Log.i(
-            TAG,
-            "seek timeUs=$timeUs targetFrames=$targetFrames rate=$rate " +
-                "clock=${stream?.framesWritten} alive=${stream?.isAlive}",
-        )
-        synchronized(pcmLock) {
-            mediaTimeBaseFrames = stream?.framesWritten ?: 0L
-            startMediaTimeNeedsInit = true
-            lastWriteElapsedMs = 0L
         }
     }
 
@@ -423,29 +346,6 @@ class ExclusiveUsbOutput(
             paused = false
             pcmLock.notifyAll()
         }
-    }
-
-    /**
-     * The stream stopped without the device being closed. [flush] discards
-     * leftover URBs and marks it running again. [start] would zero the DAC
-     * clock and make the sink position jump back to the beginning.
-     */
-    fun restartIfStopped(): Boolean {
-        val running = stream ?: return false
-        if (running.isAlive) return false
-        if (!running.start()) return false
-        synchronized(stateLock) {
-            paused = false
-            mediaTimeBaseFrames = running.framesWritten
-        }
-        Log.i(TAG, "seek rearmed clock=${running.framesWritten} startUs=$startMediaTimeUs")
-        return true
-    }
-
-    fun handleDiscontinuity() {
-        // A DASH segment boundary is not a seek. Resetting the sink clock
-        // here made ExoPlayer wait forever after the first ~5s chunk
-        // ("keeps loading") while the DAC had already stopped.
     }
 
     /**
@@ -685,7 +585,6 @@ class ExclusiveUsbOutput(
         startMediaTimeUs = 0L
         mediaTimeBaseFrames = 0L
         if (reported > 0) {
-            lastHardwareRate = reported
             clockMatched = reported == effectiveRate && !autoNegotiatedFallback
         } else {
             clockMatched = rateSetBefore && !autoNegotiatedFallback
@@ -700,11 +599,9 @@ class ExclusiveUsbOutput(
             val volumeControl = UacFeatureVolume(info.connection, controlId)
             featureVolume = volumeControl
             val attached = volumeControl.attach()
-            featureVolumeAttached = attached
             hardwareVolume = attached
         } else {
             featureVolume = null
-            featureVolumeAttached = false
             hardwareVolume = false
         }
         Log.i(
@@ -725,9 +622,6 @@ class ExclusiveUsbOutput(
             TAG,
             "exclusive volume hardware=$hardwareVolume listening=$listeningGain softwareGain=$softwareGainValue",
         )
-        sessionSummary = "started rate=${effectiveRate}Hz alt=$alt wireBits=$wireBits reported=$reported " +
-            "clockMatched=$clockMatched fallback=$autoNegotiatedFallback hardwareVolume=$hardwareVolume " +
-            "maxPacket=$maxPacket interval=$dataInterval feedback=${selectedFeedback != null} feedbackPolled=$pollFeedback"
         startWriterLocked(created)
         return true
     }
@@ -755,41 +649,12 @@ class ExclusiveUsbOutput(
         editor.apply()
     }
 
-    /**
-     * The DAC is not consuming the stream at the rate it was configured for
-     * and its clock was never confirmed: what it plays is garbage (loud noise
-     * on a UAC1 dongle in the field). Stop now, remember the DAC for this session so the next
-     * track does not blast it again, and let the sink fall back.
-     */
-    fun abortUnhealthy(reason: String) {
-        synchronized(configLock) {
-            if (!active) return
-            val key = currentDeviceKey
-            Log.w(TAG, "Exclusive USB aborted: $reason (device $key)")
-            if (key != null) {
-                sessionBlockedDevices[key] = reason
-            }
-            failLocked("stopped for safety: $reason")
-        }
-    }
-
-    /** Text for the signal-path "copy USB diagnostic" button. */
-    fun diagnosticReport(): String = buildString {
-        append("LastWave USB diagnostic\n")
-        append("active=$active wanted=$wanted rate=$configuredRateHz clockMatched=$clockMatched ")
-        append("hardwareVolume=$hardwareVolume forceSoftwareVolume=$forceSoftwareVolume\n")
-        if (sessionSummary.isNotEmpty()) append(sessionSummary).append('\n')
-        lastFailureReason?.let { append("lastFailure=").append(it).append('\n') }
-        append(runCatching { usbAudio.diagnosticReport() }.getOrDefault(""))
-    }
-
     @Volatile private var currentFallbackNegotiated = false
 
     private fun recheckClockLocked() {
         if (clockRechecked) return
         val reported = usbAudio.readSampleRate()
         if (reported > 0) {
-            lastHardwareRate = reported
             clockMatched = reported == configuredRateHz && !currentFallbackNegotiated
         }
         clockRechecked = true
@@ -980,7 +845,6 @@ class ExclusiveUsbOutput(
         }
         synchronized(stateLock) {
             featureVolume = null
-            featureVolumeAttached = false
             volumeProbed = false
             ignoreStreamMusicMax = false
             hardwareVolume = false
@@ -1018,7 +882,6 @@ class ExclusiveUsbOutput(
         const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
         const val KEY_LAST_NON_MAX_GAIN = "last_non_max_stream_gain"
         const val KEY_BLOCK_PREFIX = "blocked_dac_"
-        const val PLL_SETTLE_MS = 50L
         const val CLOCK_VALID_TRIES = 40
         const val CLOCK_VALID_STEP_MS = 5L
         const val RAW_PCM16 = 2
@@ -1033,13 +896,6 @@ class ExclusiveUsbOutput(
             val extra = (raw shr 11) and 0x3
             val size = raw and 0x7FF
             return if (extra > 0) size * (1 + extra) else raw
-        }
-
-        fun minIsoPacketBytes(rateHz: Int, channels: Int, bitDepth: Int, interval: Int = 1): Int {
-            val bpf = ((bitDepth + 7) / 8).coerceAtLeast(1) * channels.coerceIn(1, 8)
-            val microframes = if (interval > 1) 1 shl (interval - 1).coerceAtMost(4) else 1
-            val frames = ((rateHz + 7999) / 8000) * microframes + 1
-            return frames * bpf
         }
 
         fun sourceBitDepth(encoding: Int): Int = when (encoding) {

@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.util.AsyncFileWriter
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -12,7 +13,7 @@ import java.io.File
 /** Preferiti, cronologia e ultime ricerche di Sonara (file JSON locale, nessun account richiesto). */
 class YtStore(context: Context) {
     private val file = File(context.filesDir, "yt_store.json")
-    private val lock = Any()
+    private val writer = AsyncFileWriter(file, "yt-store")
 
     var favorites by mutableStateOf(emptyList<Yt.Item>())
         private set
@@ -30,14 +31,7 @@ class YtStore(context: Context) {
                 val o = JSONObject(file.readText())
                 favorites = items(o.optJSONArray("favorites"))
                 history = items(o.optJSONArray("history"))
-                saved = o.optJSONArray("saved")?.let { a ->
-                    (0 until a.length()).mapNotNull {
-                        val e = a.optJSONObject(it) ?: return@mapNotNull null
-                        val kind = runCatching { Yt.Kind.valueOf(e.optString("kind")) }.getOrNull() ?: return@mapNotNull null
-                        val id = e.optString("id")
-                        if (id.isBlank()) null else Yt.Entry(kind, id, e.optString("title"), e.optString("sub"), e.optString("thumb"))
-                    }
-                } ?: emptyList()
+                saved = entries(o.optJSONArray("saved"))
                 searches = o.optJSONArray("searches")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
             }
         }.onFailure { AppLog.e("YouTube", "Lettura preferiti non riuscita", it) }
@@ -80,35 +74,17 @@ class YtStore(context: Context) {
         save()
     }
 
-    fun clearSearches() {
-        searches = emptyList()
-        save()
-    }
+    private fun items(a: JSONArray?): List<Yt.Item> =
+        if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let { o -> Yt.Item.fromJson(o) } }
 
-    private fun items(a: JSONArray?): List<Yt.Item> {
-        if (a == null) return emptyList()
-        return (0 until a.length()).mapNotNull {
-            val o = a.optJSONObject(it) ?: return@mapNotNull null
-            val id = o.optString("id")
-            if (id.isBlank()) null else Yt.Item(id, o.optString("title"), o.optString("artist"), o.optLong("dur"), o.optString("thumb"))
-        }
-    }
-
-    private fun arr(l: List<Yt.Item>) = JSONArray().apply {
-        l.forEach {
-            put(JSONObject().put("id", it.videoId).put("title", it.title).put("artist", it.artist).put("dur", it.durationSec).put("thumb", it.thumb))
-        }
-    }
+    private fun entries(a: JSONArray?): List<Yt.Entry> =
+        if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let { o -> Yt.Entry.fromJson(o) } }
 
     fun exportJson(): String = JSONObject()
-        .put("favorites", arr(favorites))
-        .put("history", arr(history))
+        .put("favorites", JSONArray().apply { favorites.forEach { put(it.toJson()) } })
+        .put("history", JSONArray().apply { history.forEach { put(it.toJson()) } })
         .put("searches", JSONArray(searches))
-        .put("saved", JSONArray().apply {
-            saved.forEach {
-                put(JSONObject().put("kind", it.kind.name).put("id", it.browseId).put("title", it.title).put("sub", it.subtitle).put("thumb", it.thumb))
-            }
-        })
+        .put("saved", JSONArray().apply { saved.forEach { put(it.toJson()) } })
         .toString()
 
     /** Unisce una copia di riserva a preferiti, salvati e cronologia attuali; restituisce quanti elementi nuovi. */
@@ -116,15 +92,7 @@ class YtStore(context: Context) {
         val o = JSONObject(text)
         val fav = items(o.optJSONArray("favorites")).filter { n -> favorites.none { it.videoId == n.videoId } }
         val his = items(o.optJSONArray("history")).filter { n -> history.none { it.videoId == n.videoId } }
-        val sav = o.optJSONArray("saved")?.let { a ->
-            (0 until a.length()).mapNotNull {
-                val e = a.optJSONObject(it) ?: return@mapNotNull null
-                val kind = runCatching { Yt.Kind.valueOf(e.optString("kind")) }.getOrNull() ?: return@mapNotNull null
-                val id = e.optString("id")
-                if (id.isBlank() || saved.any { s -> s.browseId == id }) null
-                else Yt.Entry(kind, id, e.optString("title"), e.optString("sub"), e.optString("thumb"))
-            }
-        } ?: emptyList()
+        val sav = entries(o.optJSONArray("saved")).filter { n -> saved.none { it.browseId == n.browseId } }
         if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) return 0
         favorites = favorites + fav
         history = (history + his).take(300)
@@ -133,11 +101,9 @@ class YtStore(context: Context) {
         return fav.size + his.size + sav.size
     }
 
+    /** Scrive il file in coda su un thread dedicato: l'ordine è quello delle modifiche e il file non resta mai a metà. */
     private fun save() {
-        val json = exportJson()
-        Thread {
-            synchronized(lock) { runCatching { file.writeText(json) }.onFailure { AppLog.e("YouTube", "Salvataggio non riuscito", it) } }
-        }.start()
+        writer.write(exportJson()) { AppLog.e("YouTube", "Salvataggio non riuscito", it) }
         YtBackup.schedule()
     }
 }

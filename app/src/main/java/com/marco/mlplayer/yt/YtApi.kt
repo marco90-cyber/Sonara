@@ -1,31 +1,25 @@
 package com.marco.mlplayer.yt
 
 import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.util.Net
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 
-/** Chiamate a YouTube Music (InnerTube, client WEB_REMIX), con o senza account. */
+/** Chiamate a YouTube Music (InnerTube, client WEB_REMIX), senza account. */
 object YtApi {
     private const val TAG = "YouTube"
     private const val ORIGIN = "https://music.youtube.com"
     private const val KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30"
     private const val CLIENT_VERSION = "1.20250929.01.00"
-    private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
+    private val THUMB_SIZE = Regex("=w\\d+-h\\d+")
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
-        .build()
+    private val http = Net.withReadTimeout(readTimeoutSec = 25)
 
-    data class Playlist(val browseId: String, val title: String, val subtitle: String, val thumb: String)
-
-    /** POST a un endpoint InnerTube; usa i cookie dell'account se collegato. */
+    /** POST a un endpoint InnerTube (senza account). */
     fun post(endpoint: String, body: JSONObject, continuation: String? = null): JSONObject {
         body.put("context", JSONObject().put("client", JSONObject()
             .put("clientName", "WEB_REMIX").put("clientVersion", CLIENT_VERSION).put("hl", "it").put("gl", "IT")))
@@ -33,7 +27,7 @@ object YtApi {
         if (continuation != null) url += "&ctoken=$continuation&continuation=$continuation&type=next"
         val b = Request.Builder().url(url)
             .post(body.toString().toRequestBody("application/json".toMediaType()))
-            .header("User-Agent", UA)
+            .header("User-Agent", Net.BROWSER_UA)
             .header("Origin", ORIGIN)
             .header("Referer", "$ORIGIN/")
             .header("X-Origin", ORIGIN)
@@ -51,7 +45,7 @@ object YtApi {
     fun browse(browseId: String?, continuation: String? = null): JSONObject =
         post("browse", JSONObject().apply { if (browseId != null) put("browseId", browseId) }, continuation)
 
-    // ------------------------------------------------------------------ account
+    // ------------------------------------------------------------------ playlist e artisti
 
     /** Brani di una playlist (id "VL...", oppure "VLLM" per i brani che ti piacciono), fino a ~1500. */
     fun playlistTracks(browseId: String): List<Yt.Item> {
@@ -84,7 +78,8 @@ object YtApi {
             runCatching { playlistTracks(moreId) }.onSuccess { if (it.size > songs.size) songs = it }
                 .onFailure { AppLog.w(TAG, "Elenco completo dei brani non riuscito: ${it.message}") }
         }
-        val shelves = collect(json, "musicCarouselShelfRenderer").mapNotNull { parseShelf(it) }
+        // titoli doppi farebbero cadere le liste dell'interfaccia (chiavi duplicate): ne tengo uno solo
+        val shelves = collect(json, "musicCarouselShelfRenderer").mapNotNull { parseShelf(it) }.distinctBy { it.title }
         AppLog.i(TAG, "Artista $channelId: ${songs.size} brani, ${shelves.size} scaffali")
         return Detail(songs, shelves)
     }
@@ -93,6 +88,8 @@ object YtApi {
 
     /** Una scheda della home: un brano da suonare oppure un album/playlist/artista da aprire. */
     data class Card(val song: Yt.Item?, val entry: Yt.Entry?) {
+        /** Identificativo della scheda (video o browseId): serve a evitare doppioni nelle liste. */
+        val id get() = song?.videoId ?: entry?.browseId.orEmpty()
         val title get() = song?.title ?: entry?.title.orEmpty()
         val subtitle get() = song?.artist ?: entry?.subtitle.orEmpty()
         val thumb get() = song?.cover ?: entry?.thumb.orEmpty()
@@ -110,7 +107,7 @@ object YtApi {
             json = browse(null, next)
         }
         AppLog.i(TAG, "Home: ${out.size} scaffali")
-        return out
+        return out.distinctBy { it.title }
     }
 
     private fun parseShelf(sh: JSONObject): Shelf? {
@@ -142,7 +139,7 @@ object YtApi {
                 cards.add(Card(null, Yt.Entry(kind, browseId, name, sub, thumb)))
             }
         }
-        return if (title.isBlank() || cards.isEmpty()) null else Shelf(title, cards)
+        return if (title.isBlank() || cards.isEmpty()) null else Shelf(title, cards.distinctBy { it.id })
     }
 
     /** Radio di un brano: i brani che YouTube Music propone di seguito (il primo è il brano stesso). */
@@ -214,15 +211,13 @@ object YtApi {
         val a = found ?: return ""
         val url = a.optJSONObject(a.length() - 1)?.optString("url").orEmpty()
         // le miniature di Google hanno la misura nell'indirizzo ("=w60-h60"): chiedo una versione più nitida
-        return url.replace(Regex("=w\\d+-h\\d+"), "=w544-h544")
+        return url.replace(THUMB_SIZE, "=w544-h544")
     }
 
     private fun runsText(o: JSONObject?): String {
         val a = o?.optJSONArray("runs") ?: return ""
         return (0 until a.length()).joinToString("") { a.getJSONObject(it).optString("text") }
     }
-
-    private fun Any?.obj(key: String): JSONObject? = (this as? JSONObject)?.optJSONObject(key)
 
     /** Tutti gli oggetti sotto una chiave con quel nome, in qualunque punto del JSON (senza scendere dentro i trovati). */
     private fun collect(root: Any?, name: String): List<JSONObject> {

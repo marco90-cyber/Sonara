@@ -20,19 +20,17 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
-    }
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-        }
-    }
-    defaultConfig {
         externalNativeBuild {
             cmake {
                 // Oboe come libreria condivisa (prefab)
                 arguments += listOf("-DANDROID_STL=c++_shared")
             }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
         }
     }
 

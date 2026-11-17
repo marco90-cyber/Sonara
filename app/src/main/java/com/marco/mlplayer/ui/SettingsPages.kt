@@ -4,12 +4,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Equalizer
-import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Vibration

@@ -3,6 +3,7 @@ package com.marco.mlplayer.yt
 import android.net.Uri
 import com.marco.mlplayer.data.Track
 import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.util.Net
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.NewPipe
@@ -21,9 +22,9 @@ import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQu
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
 
 /**
  * Livello YouTube Music di Sonara: ricerca e stream audio tramite NewPipeExtractor
@@ -31,7 +32,10 @@ import java.util.concurrent.TimeUnit
  */
 object Yt {
     private const val TAG = "YouTube"
-    private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
+    private val VIDEO_ID_QUERY = Regex("[?&]v=([A-Za-z0-9_-]{6,})")
+    private val VIDEO_ID_SHORT = Regex("youtu\\.be/([A-Za-z0-9_-]{6,})")
+    private val PLAYLIST_ID = Regex("[?&]list=([A-Za-z0-9_-]+)")
+    private val CHANNEL_ID = Regex("/channel/([A-Za-z0-9_-]+)")
 
     /** Un brano trovato (id del video, titolo, artista, durata, miniatura). */
     data class Item(
@@ -43,14 +47,22 @@ object Yt {
     ) {
         /** Miniatura da mostrare: quella trovata oppure, se manca, quella del video (esiste sempre). */
         val cover: String get() = thumb.ifBlank { "https://i.ytimg.com/vi/$videoId/mqdefault.jpg" }
+
+        fun toJson(): JSONObject =
+            JSONObject().put("id", videoId).put("title", title).put("artist", artist).put("dur", durationSec).put("thumb", thumb)
+
+        companion object {
+            /** Il brano salvato in JSON da [toJson]; null se manca l'id. */
+            fun fromJson(o: JSONObject): Item? {
+                val id = o.optString("id")
+                return if (id.isBlank()) null else Item(id, o.optString("title"), o.optString("artist"), o.optLong("dur"), o.optString("thumb"))
+            }
+        }
     }
 
     class Resolved(val url: String, val expiresAtMs: Long, val mime: String, val bitrateKbps: Int)
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
+    private val http = Net.client
 
     @Volatile private var ready = false
     private val cache = ConcurrentHashMap<String, Resolved>()
@@ -104,7 +116,19 @@ object Yt {
     enum class Kind(val label: String) { Songs("Brani"), Artists("Artisti"), Albums("Album"), Playlists("Playlist") }
 
     /** Un risultato che non è un brano: artista, album o playlist (si apre per vederne i brani). */
-    data class Entry(val kind: Kind, val browseId: String, val title: String, val subtitle: String, val thumb: String)
+    data class Entry(val kind: Kind, val browseId: String, val title: String, val subtitle: String, val thumb: String) {
+        fun toJson(): JSONObject =
+            JSONObject().put("kind", kind.name).put("id", browseId).put("title", title).put("sub", subtitle).put("thumb", thumb)
+
+        companion object {
+            /** La voce salvata in JSON da [toJson]; null se il tipo o l'id non sono validi. */
+            fun fromJson(o: JSONObject): Entry? {
+                val kind = runCatching { Kind.valueOf(o.optString("kind")) }.getOrNull() ?: return null
+                val id = o.optString("id")
+                return if (id.isBlank()) null else Entry(kind, id, o.optString("title"), o.optString("sub"), o.optString("thumb"))
+            }
+        }
+    }
 
     /** Cerca artisti, album o playlist su YouTube Music, su più pagine. Da chiamare fuori dal thread principale. */
     fun searchEntries(query: String, kind: Kind, maxPages: Int = 4, progress: (List<Entry>) -> Unit = {}): List<Entry> {
@@ -125,20 +149,20 @@ object Yt {
         return last
     }
 
-    private fun toEntry(it: InfoItem, kind: Kind): Entry? {
-        val thumb = it.thumbnails.maxByOrNull { t -> t.height * t.width }?.url.orEmpty()
-        return when (it) {
+    private fun toEntry(item: InfoItem, kind: Kind): Entry? {
+        val thumb = item.thumbnails.maxByOrNull { t -> t.height * t.width }?.url.orEmpty()
+        return when (item) {
             is PlaylistInfoItem -> {
-                val list = Regex("[?&]list=([A-Za-z0-9_-]+)").find(it.url)?.groupValues?.get(1) ?: return null
+                val list = PLAYLIST_ID.find(item.url)?.groupValues?.get(1) ?: return null
                 val sub = listOfNotNull(
-                    it.uploaderName?.takeIf { u -> u.isNotBlank() },
-                    it.streamCount.takeIf { n -> n > 0 }?.let { n -> "$n brani" },
+                    item.uploaderName?.takeIf { u -> u.isNotBlank() },
+                    item.streamCount.takeIf { n -> n > 0 }?.let { n -> "$n brani" },
                 ).joinToString(" · ")
-                Entry(kind, if (list.startsWith("VL")) list else "VL$list", it.name.orEmpty(), sub, thumb)
+                Entry(kind, if (list.startsWith("VL")) list else "VL$list", item.name.orEmpty(), sub, thumb)
             }
             is ChannelInfoItem -> {
-                val id = Regex("/channel/([A-Za-z0-9_-]+)").find(it.url)?.groupValues?.get(1) ?: return null
-                Entry(kind, id, it.name.orEmpty(), "Artista", thumb)
+                val id = CHANNEL_ID.find(item.url)?.groupValues?.get(1) ?: return null
+                Entry(kind, id, item.name.orEmpty(), "Artista", thumb)
             }
             else -> null
         }
@@ -151,8 +175,7 @@ object Yt {
     }
 
     fun videoIdOf(url: String): String? =
-        Regex("[?&]v=([A-Za-z0-9_-]{6,})").find(url)?.groupValues?.get(1)
-            ?: Regex("youtu\\.be/([A-Za-z0-9_-]{6,})").find(url)?.groupValues?.get(1)
+        VIDEO_ID_QUERY.find(url)?.groupValues?.get(1) ?: VIDEO_ID_SHORT.find(url)?.groupValues?.get(1)
 
     /** Link audio valido adesso per il video (con cache fino alla scadenza). Bloccante. */
     fun resolve(videoId: String, preferMp4: Boolean = false): Resolved {
@@ -180,14 +203,16 @@ object Yt {
             ?: (now + 5 * 60_000)
         val kbps = maxOf(best.averageBitrate, best.bitrate).let { if (it > 2000) it / 1000 else it }
         val r = Resolved(best.content, expire, best.format?.mimeType.orEmpty(), kbps)
+        if (cache.size >= 64) cache.entries.removeIf { it.value.expiresAtMs <= now }
         cache[key] = r
         AppLog.i(TAG, "Stream pronto per $videoId: ${r.mime} ${r.bitrateKbps} kbps")
         return r
     }
 
-    /** Dimentica il link (scaduto o rifiutato) e la cache dello script del player. */
+    /** Dimentica il link (scaduto o rifiutato, in entrambe le varianti) e la cache dello script del player. */
     fun invalidate(videoId: String) {
         cache.remove(videoId)
+        cache.remove("$videoId#m4a")
         runCatching { YoutubeJavaScriptPlayerManager.clearAllCaches() }
     }
 
@@ -220,7 +245,7 @@ object Yt {
                 .method(request.httpMethod(), request.dataToSend()?.toRequestBody())
             val headers = request.headers()
             headers.forEach { (n, vs) -> vs.forEach { v -> b.addHeader(n, v) } }
-            if (headers.keys.none { it.equals("User-Agent", true) }) b.header("User-Agent", UA)
+            if (headers.keys.none { it.equals("User-Agent", true) }) b.header("User-Agent", Net.BROWSER_UA)
             if (headers.keys.none { it.equals("Accept-Language", true) }) b.header("Accept-Language", "it-IT,it;q=0.9,en;q=0.8")
             return client.newCall(b.build()).execute().use { r ->
                 Response(

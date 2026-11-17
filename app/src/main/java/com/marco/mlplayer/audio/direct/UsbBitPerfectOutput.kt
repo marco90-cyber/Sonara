@@ -34,29 +34,11 @@ class UsbBitPerfectOutput(private val manager: AudioManager?) {
     }
 
     @Synchronized
-    fun setAttributes(value: AudioAttributes) {
-        if (attributes == value) return
-        clear()
-        attributes = value
-        apply()
-    }
-
-    @Synchronized
     fun setFormat(value: AudioFormat?) {
         if (sameFormat(format, value)) return
         clear()
         format = value
         apply()
-    }
-
-    @Synchronized
-    fun isConfigured(): Boolean {
-        if (Build.VERSION.SDK_INT < 34 || !enabled || requestedDevice == null) return false
-        return runCatching {
-            val preferred = manager?.getPreferredMixerAttributes(attributes, requestedDevice!!)
-            preferred?.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
-                sameFormat(preferred.format, format)
-        }.getOrDefault(false)
     }
 
     private fun apply() {
