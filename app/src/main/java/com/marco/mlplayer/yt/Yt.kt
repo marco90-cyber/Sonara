@@ -26,6 +26,7 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 
 /**
  * Livello YouTube Music di Sonara: ricerca e stream audio tramite NewPipeExtractor
@@ -182,13 +183,63 @@ object Yt {
         return Item(id, name.orEmpty(), uploaderName.orEmpty(), duration.coerceAtLeast(0), thumb)
     }
 
+    /** Bitrate in kbps: alcuni flussi lo dichiarano in bit al secondo. */
+    private fun kbpsOf(average: Int, bitrate: Int): Int = maxOf(average, bitrate).let { if (it > 2000) it / 1000 else it }
+
     fun videoIdOf(url: String): String? =
         VIDEO_ID_QUERY.find(url)?.groupValues?.get(1) ?: VIDEO_ID_SHORT.find(url)?.groupValues?.get(1)
 
-    /** Link audio valido adesso per il video (con cache fino alla scadenza). Bloccante. */
-    fun resolve(videoId: String, preferMp4: Boolean = false): Resolved {
+    /** Qualità scelta nelle impostazioni per la rete in uso (0 = massima, 1 = alta, 2 = risparmio): la imposta l'app all'avvio. */
+    @Volatile var qualityProvider: () -> Int = { 0 }
+
+    fun currentQuality(): Int = runCatching { qualityProvider() }.getOrDefault(0).coerceIn(0, 2)
+
+    /** Oltre questo bitrate (kbps) un flusso non è più "alto" ma "massimo". */
+    private const val HIGH_KBPS = 160
+
+    /**
+     * Quale flusso scegliere tra quelli con questi bitrate (kbps): 0 = il più ricco, 1 = il più ricco fino a [HIGH_KBPS]
+     * (se non ce n'è, il più leggero), 2 = il più leggero. -1 se non ce ne sono.
+     */
+    fun pickIndex(kbps: List<Int>, quality: Int): Int {
+        if (kbps.isEmpty()) return -1
+        val lightest = kbps.indices.minByOrNull { kbps[it] }!!
+        return when (quality) {
+            2 -> lightest
+            1 -> kbps.indices.filter { kbps[it] <= HIGH_KBPS }.maxByOrNull { kbps[it] } ?: lightest
+            else -> kbps.indices.maxByOrNull { kbps[it] }!!
+        }
+    }
+
+    private fun cacheKey(videoId: String, preferMp4: Boolean, quality: Int) = "$videoId#${if (preferMp4) "m4a" else "any"}#q$quality"
+
+    private val prefetchExec = Executors.newSingleThreadExecutor { r -> Thread(r, "yt-prefetch").apply { isDaemon = true } }
+    private val prefetching: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** Prepara in anticipo il link del brano (di solito il successivo della coda), così all'avvio non c'è da aspettare. */
+    fun prefetch(videoId: String) {
+        val quality = currentQuality()
+        if (runCatching { YtDownloads.fileUri(videoId) }.getOrNull() != null) return
+        if (cache[cacheKey(videoId, false, quality)]?.let { it.expiresAtMs - 90_000 > System.currentTimeMillis() } == true) return
+        if (!prefetching.add(videoId)) return
+        prefetchExec.execute {
+            try {
+                resolve(videoId, quality = quality)
+            } catch (e: Exception) {
+                AppLog.w(TAG, "Preparazione di $videoId non riuscita: ${e.message}")
+            } finally {
+                prefetching.remove(videoId)
+            }
+        }
+    }
+
+    /**
+     * Link audio valido adesso per il video (con cache fino alla scadenza). Bloccante.
+     * [quality]: 0 = il flusso più ricco, 1 = alta, 2 = risparmio; i download usano sempre la massima.
+     */
+    fun resolve(videoId: String, preferMp4: Boolean = false, quality: Int = 0): Resolved {
         val now = System.currentTimeMillis()
-        val key = if (preferMp4) "$videoId#m4a" else videoId
+        val key = cacheKey(videoId, preferMp4, quality)
         cache[key]?.takeIf { it.expiresAtMs - 90_000 > now }?.let { return it }
         init()
         val info = try {
@@ -202,14 +253,13 @@ object Yt {
             .filter { !it.content.contains("xtags=drc") }
         // per i download preferisco l'AAC (m4a): ci si possono scrivere i tag e lo leggono tutti i lettori
         val pool = if (preferMp4) usable.filter { it.format?.mimeType?.contains("mp4") == true }.ifEmpty { usable } else usable
-        val best = pool
-            .maxByOrNull { maxOf(it.averageBitrate, it.bitrate) }
+        val best = pool.getOrNull(pickIndex(pool.map { kbpsOf(it.averageBitrate, it.bitrate) }, quality))
             ?: throw IOException("YouTube: nessun flusso audio per $videoId").also {
                 AppLog.w(TAG, "Nessun flusso audio progressivo per $videoId (${info.audioStreams.size} flussi)")
             }
         val expire = Uri.parse(best.content).getQueryParameter("expire")?.toLongOrNull()?.times(1000)
             ?: (now + 5 * 60_000)
-        val kbps = maxOf(best.averageBitrate, best.bitrate).let { if (it > 2000) it / 1000 else it }
+        val kbps = kbpsOf(best.averageBitrate, best.bitrate)
         val r = Resolved(best.content, expire, best.format?.mimeType.orEmpty(), kbps)
         if (cache.size >= 64) cache.entries.removeIf { it.value.expiresAtMs <= now }
         cache[key] = r
@@ -219,8 +269,7 @@ object Yt {
 
     /** Dimentica il link (scaduto o rifiutato, in entrambe le varianti) e la cache dello script del player. */
     fun invalidate(videoId: String) {
-        cache.remove(videoId)
-        cache.remove("$videoId#m4a")
+        cache.keys.removeIf { it.startsWith("$videoId#") }
         runCatching { YoutubeJavaScriptPlayerManager.clearAllCaches() }
     }
 

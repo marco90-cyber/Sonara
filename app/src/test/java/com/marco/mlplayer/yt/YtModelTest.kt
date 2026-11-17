@@ -39,4 +39,15 @@ class YtModelTest {
         assertNull(Yt.Entry.fromJson(JSONObject("""{"kind":"Artists","id":""}""")))
         assertNotNull(Yt.Entry.fromJson(JSONObject("""{"kind":"Artists","id":"UC123"}""")))
     }
+
+    @Test
+    fun picksStreamByQuality() {
+        val kbps = listOf(50, 70, 128, 160, 256)
+        assertEquals(4, Yt.pickIndex(kbps, 0))
+        assertEquals(3, Yt.pickIndex(kbps, 1))
+        assertEquals(0, Yt.pickIndex(kbps, 2))
+        // niente sotto i 160 kbps: per "alta" si prende il più leggero
+        assertEquals(1, Yt.pickIndex(listOf(256, 192), 1))
+        assertEquals(-1, Yt.pickIndex(emptyList(), 0))
+    }
 }

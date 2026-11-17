@@ -17,6 +17,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtDataSource
@@ -115,7 +116,9 @@ class AudioEngine(
         factory.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         player = ExoPlayer.Builder(app, factory)
             // i brani "yt:<id>" vengono risolti in un link audio solo all'apertura del flusso
-            .setMediaSourceFactory(DefaultMediaSourceFactory(YtDataSource.factory(app)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(YtDataSource.factory(app, settings.cacheMb)))
+            // il brano parte con 1 s di audio già pronto (di solito 2,5 s); il buffer può arrivare a 60 s
+            .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 60_000, 1_000, 3_000).build())
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -189,6 +192,7 @@ class AudioEngine(
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updateCurrent()
+                prefetchNext()
             }
 
             override fun onTracksChanged(tracks: Tracks) {
@@ -380,6 +384,14 @@ class AudioEngine(
         consecutiveErrors = 0
     }
 
+    /** Prepara in anticipo il link del brano che verrà dopo, così il passaggio non ha attese. */
+    private fun prefetchNext() {
+        val n = player.nextMediaItemIndex
+        if (n == C.INDEX_UNSET || n < 0 || n >= player.mediaItemCount) return
+        val uri = player.getMediaItemAt(n).localConfiguration?.uri ?: return
+        if (uri.scheme == "yt") Yt.prefetch(uri.schemeSpecificPart.orEmpty())
+    }
+
     fun playQueue(tracks: List<Track>, startIndex: Int, shuffle: Boolean = false) {
         if (tracks.isEmpty()) return
         scanCancel.set(true)            // annulla le analisi della coda precedente
@@ -397,6 +409,7 @@ class AudioEngine(
         player.prepare()
         player.play()
         updateCurrent()
+        prefetchNext()
         AppLog.i("Audio", "Coda di ${tracks.size} brani, avvio da #$start (${tracks[start].title})")
     }
 

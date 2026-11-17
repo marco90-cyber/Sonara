@@ -42,6 +42,11 @@ class MLPlayerApp : Application() {
         ytImports = com.marco.mlplayer.yt.YtImports(this)
         com.marco.mlplayer.yt.YtDownloads.init(this)
         com.marco.mlplayer.yt.YtBackup.init(this)
+        val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
+        // con i dati mobili (o una rete a consumo) vale la qualità scelta per i dati, altrimenti quella del Wi-Fi
+        com.marco.mlplayer.yt.Yt.qualityProvider = {
+            if (runCatching { connectivity.isActiveNetworkMetered }.getOrDefault(false)) settings.qualityMobile else settings.qualityWifi
+        }
         // l'app è visibile se almeno un'activity è avviata: a importazione finita in background si avvisa con una notifica
         registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
             private var started = 0

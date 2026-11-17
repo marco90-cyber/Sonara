@@ -2,6 +2,7 @@ package com.marco.mlplayer.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Info
@@ -16,6 +17,7 @@ import androidx.compose.runtime.Composable
 import com.marco.mlplayer.AppUpdate
 import com.marco.mlplayer.AppUpdateStatus
 import com.marco.mlplayer.yt.ImportRunner
+import com.marco.mlplayer.yt.YtCache
 import com.marco.mlplayer.yt.ImportScheduler
 import com.marco.mltheme.MLChoiceRow
 import com.marco.mltheme.MLDependent
@@ -59,6 +61,21 @@ fun SettingsHome(env: AppEnv) {
                     s.hapticStrength.coerceIn(0, 2).toString()
                 ) { s.hapticStrength = it.toInt(); env.feedback.test() }
             }
+        }
+        MLGroup("Streaming") {
+            val q = listOf("0" to "Massima", "1" to "Alta (fino a 160 kbps)", "2" to "Risparmio (circa 50 kbps)")
+            MLChoiceRow("Qualità con il Wi-Fi", q, s.qualityWifi.coerceIn(0, 2).toString()) { s.qualityWifi = it.toInt() }
+            MLChoiceRow("Qualità con i dati mobili", q, s.qualityMobile.coerceIn(0, 2).toString()) { s.qualityMobile = it.toInt() }
+            MLChoiceRow(
+                "Cache audio",
+                listOf("0" to "Spenta", "200" to "200 MB", "500" to "500 MB", "1000" to "1 GB", "2000" to "2 GB"),
+                s.cacheMb.toString(),
+            ) { s.cacheMb = it.toInt(); env.message = "La nuova dimensione vale dal prossimo avvio" }
+            MLNavRow(
+                "Svuota la cache audio",
+                "Occupa ${YtCache.usedBytes() / (1024 * 1024)} MB · riascolti e salti indietro senza riscaricare",
+                icon = Icons.Filled.Delete,
+            ) { env.feedback.tapScreen(); YtCache.clear(); env.message = "Cache audio svuotata" }
         }
         MLGroup("Download") {
             MLNavRow(

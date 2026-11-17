@@ -107,6 +107,14 @@ class Settings(context: Context) {
         foldersRaw = folders.filter { it != uri }.joinToString("\n")
     }
 
+    // Streaming
+    /** Qualità dell'audio in streaming con il Wi-Fi: 0 = massima, 1 = alta (fino a 160 kbps), 2 = risparmio. */
+    var qualityWifi by IntPref(sp, "quality_wifi", 0)
+    /** Come sopra, con i dati mobili (o qualunque rete a consumo). */
+    var qualityMobile by IntPref(sp, "quality_mobile", 0)
+    /** Dimensione della cache audio in MB (0 = spenta); vale dal prossimo avvio. */
+    var cacheMb by IntPref(sp, "cache_mb", 500)
+
     // Playlist importate
     /** Controlla ogni tanto se le playlist importate sono cambiate sul servizio di origine. */
     var importAutoRefresh by BoolPref(sp, "import_auto_refresh", false)

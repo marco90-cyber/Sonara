@@ -54,6 +54,8 @@ pubbliche di Spotify, Deezer e YouTube.
 - **Uscita Hi-Res**: uscita adattiva (bit e kHz in base al DAC o alle casse), **USB esclusiva** con driver diretto al DAC, uscita diretta e modo **bit-perfect** senza DSP.
 - **VU meter** nel lettore e **analizzatore** con spettro, livelli, fase e PPM.
 - Riquadro con qualità e formato dell'audio in riproduzione.
+- **Qualità dello streaming** a scelta, separata per Wi-Fi e dati mobili: massima, alta (fino a 160 kbps) o risparmio.
+- **Avvio rapido**: il brano successivo viene preparato mentre ascolti, e la **cache audio** su disco (da 200 MB a 2 GB, regolabile) rende istantanei riascolti e salti indietro.
 - **Testi sincronizzati** riga per riga o parola per parola, da più fonti: LRCLIB, Apple Music e QQ Music (tramite BetterLyrics), Kugou, Unison, Lyrics.ovh e, in modo sperimentale, YouTube.
 
 ### Libreria e offline
