@@ -68,7 +68,7 @@ class Settings(context: Context) {
     /** Lancette dei VU: 0 = morbide (300 ms), 1 = rapide (120 ms) */
     var vuSpeed by IntPref(sp, "vu_speed", 0)
     /** Riferimento dei VU: livello RMS in dBFS che vale 0 VU (-20/-18/-14/-12), 0 = scala in dBFS di picco. */
-    var vuRef by IntPref(sp, "vu_ref", -14)
+    var vuRef by IntPref(sp, "vu_ref", 0)
 
     /** Curva dell'equalizzatore fissata in alto: scorrendo diventa una striscia compatta. */
     var curvePinned by BoolPref(sp, "curve_pinned", true)
