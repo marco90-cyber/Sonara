@@ -19,6 +19,7 @@ import com.google.common.util.concurrent.SettableFuture
 import com.marco.mlplayer.MLPlayerApp
 import com.marco.mlplayer.MainActivity
 import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.yt.PlaylistImport
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtDownloads
@@ -38,6 +39,10 @@ class PlaybackService : MediaLibraryService() {
     /** Brani conosciuti dalle ultime liste mostrate (per risolvere un id in un brano). */
     private val pool = lru<String, Yt.Item>(3000)
     private val searches = lru<String, List<Yt.Item>>(8)
+    /** Playlist, album e artisti trovati da una ricerca (cartelle da aprire). */
+    private val searchFolders = lru<String, List<MediaItem>>(8)
+    /** Raccolte viste nelle liste e nelle ricerche, per sapere di che tipo è quella che si apre. */
+    private val entryPool = lru<String, Yt.Entry>(600)
     private val children = lru<String, List<Yt.Item>>(12)
     @Volatile private var lastBrowsed: List<Yt.Item> = emptyList()
 
@@ -107,6 +112,17 @@ class PlaybackService : MediaLibraryService() {
                     .build()
             ).build()
 
+    private fun entryFolder(e: Yt.Entry): MediaItem {
+        entryPool[e.browseId] = e
+        return folder("e:${e.browseId}", e.title, e.subtitle, e.thumb)
+    }
+
+    /** I brani di una playlist importata (anche se salvata con l'id della ricerca); null se non è una playlist importata. */
+    private fun importedTracks(browseId: String): List<Yt.Item>? {
+        val ref = PlaylistImport.refOf(browseId) ?: return null
+        return app.ytImports.find(ref.importId)?.tracks ?: emptyList()
+    }
+
     private fun lookup(videoId: String): Yt.Item {
         pool[videoId]?.let { return it }
         val s = app.ytStore
@@ -157,21 +173,31 @@ class PlaybackService : MediaLibraryService() {
                         ImmutableList.of(
                             folder("fav", "Preferiti"), folder("saved", "Salvati"),
                             folder("dl", "Scaricati"), folder("hist", "Cronologia"),
-                        ), params,
+                        ).let { base ->
+                            if (app.ytImports.all.isEmpty()) base
+                            else ImmutableList.builder<MediaItem>().add(folder("imp", "Importate")).addAll(base).build()
+                        }, params,
                     )
                 )
                 parentId == "fav" -> tracks(store.favorites)
                 parentId == "hist" -> tracks(store.history)
                 parentId == "dl" -> tracks(YtDownloads.entries.map { it.item })
+                parentId == "imp" -> Futures.immediateFuture(
+                    LibraryResult.ofItemList(
+                        ImmutableList.copyOf(page(app.ytImports.all.map { entryFolder(it.entry) }, page, pageSize)),
+                        params,
+                    )
+                )
                 parentId == "saved" -> Futures.immediateFuture(
                     LibraryResult.ofItemList(
-                        ImmutableList.copyOf(page(store.saved.map { folder("e:${it.browseId}", it.title, it.subtitle, it.thumb) }, page, pageSize)),
+                        ImmutableList.copyOf(page(store.saved.map { entryFolder(it) }, page, pageSize)),
                         params,
                     )
                 )
                 parentId.startsWith("e:") -> {
                     val id = parentId.removePrefix("e:")
-                    val e = store.saved.firstOrNull { it.browseId == id }
+                    val e = store.saved.firstOrNull { it.browseId == id } ?: entryPool[id]
+                    importedTracks(id)?.let { return tracks(it) }
                     children[id]?.let { return tracks(it) }
                     later {
                         val list = runCatching {
@@ -191,9 +217,24 @@ class PlaybackService : MediaLibraryService() {
             session: MediaLibrarySession, browser: MediaSession.ControllerInfo, query: String, params: LibraryParams?,
         ): ListenableFuture<LibraryResult<Void>> {
             io.execute {
-                val r = runCatching { Yt.search(query, 1) }.onFailure { AppLog.e("Auto", "Ricerca non riuscita", it) }.getOrDefault(emptyList())
-                searches[query] = r
-                session.notifySearchResultChanged(browser, query, r.size, params)
+                // brani, playlist, album e artisti insieme (le raccolte sono cartelle da aprire)
+                val songs = io.submit<List<Yt.Item>> {
+                    runCatching { Yt.search(query, 1) }.onFailure { AppLog.e("Auto", "Ricerca brani non riuscita", it) }.getOrDefault(emptyList())
+                }
+                fun entries(kind: Yt.Kind, max: Int) = io.submit<List<Yt.Entry>> {
+                    runCatching { Yt.searchEntries(query, kind, maxPages = 1).take(max) }
+                        .onFailure { AppLog.e("Auto", "Ricerca $kind non riuscita", it) }.getOrDefault(emptyList())
+                }
+                val playlists = entries(Yt.Kind.Playlists, 6)
+                val albums = entries(Yt.Kind.Albums, 4)
+                val artists = entries(Yt.Kind.Artists, 3)
+                fun <T> got(f: java.util.concurrent.Future<List<T>>) = runCatching { f.get() }.getOrDefault(emptyList())
+                val imported = app.ytImports.all.map { it.entry }.filter { it.title.contains(query, ignoreCase = true) }.take(4)
+                val folders = (imported + got(playlists) + got(albums) + got(artists)).distinctBy { it.browseId }.map { entryFolder(it) }
+                val list = got(songs)
+                searches[query] = list
+                searchFolders[query] = folders
+                session.notifySearchResultChanged(browser, query, folders.size + list.size, params)
             }
             return Futures.immediateFuture(LibraryResult.ofVoid())
         }
@@ -204,7 +245,8 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             val list = searches[query].orEmpty()
             lastBrowsed = list
-            return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(page(list.map { playable(it) }, page, pageSize)), params))
+            val all = searchFolders[query].orEmpty() + list.map { playable(it) }
+            return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(page(all, page, pageSize)), params))
         }
 
         /** Un tocco su un brano suona tutta la lista in cui si trova; la voce ("suona X") cerca e suona. */
