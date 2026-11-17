@@ -18,10 +18,10 @@ pubbliche di Spotify, Deezer e YouTube.
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/01-home.png" width="200" alt="Home">
-  <img src="docs/screenshots/04-lettore.png" width="200" alt="Lettore">
-  <img src="docs/screenshots/06-equalizzatore.png" width="200" alt="Equalizzatore">
-  <img src="docs/screenshots/05-testi.png" width="200" alt="Testi sincronizzati">
+  <img src="docs/screenshots/1.png" width="200" alt="Home">
+  <img src="docs/screenshots/4.png" width="200" alt="Lettore">
+  <img src="docs/screenshots/6.png" width="200" alt="Equalizzatore">
+  <img src="docs/screenshots/5.png" width="200" alt="Testi sincronizzati">
 </p>
 
 ## Perché Sonara
@@ -72,14 +72,14 @@ pubbliche di Spotify, Deezer e YouTube.
 ## Screenshot
 
 <p align="center">
-  <img src="docs/screenshots/02-ricerca.png" width="180" alt="Ricerca">
-  <img src="docs/screenshots/03-playlist.png" width="180" alt="Playlist">
-  <img src="docs/screenshots/07-libreria.png" width="180" alt="Libreria">
-  <img src="docs/screenshots/08-importazione.png" width="180" alt="Importazione">
-  <img src="docs/screenshots/09-impostazioni.png" width="180" alt="Impostazioni">
+  <img src="docs/screenshots/2.png" width="180" alt="Ricerca">
+  <img src="docs/screenshots/3.png" width="180" alt="Playlist">
+  <img src="docs/screenshots/7.png" width="180" alt="Libreria">
+  <img src="docs/screenshots/8.png" width="180" alt="Importazione">
+  <img src="docs/screenshots/9.png" width="180" alt="Impostazioni">
 </p>
 <p align="center">
-  <img src="docs/screenshots/10-android-auto.png" width="420" alt="Android Auto">
+  <img src="docs/screenshots/10.png" width="420" alt="Android Auto">
 </p>
 
 ## Installazione
