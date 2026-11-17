@@ -18,6 +18,8 @@ import androidx.core.content.FileProvider
 import com.marco.mlplayer.ui.Actions
 import com.marco.mlplayer.ui.PlayerApp
 import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.yt.YtBackup
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity(), Actions {
 
@@ -39,9 +41,14 @@ class MainActivity : ComponentActivity(), Actions {
                 app.env.message = "Questa cartella non si può usare per i download"
                 return@registerForActivityResult
             }
-            app.settings.downloadDir = uri.toString()
             AppLog.i("Download", "Cartella download: $uri")
-            app.env.message = "Cartella dei download impostata"
+            app.appScope.launch {
+                // prima ritrovo i download e la libreria di una installazione precedente, poi attivo la copia di riserva
+                val restored = runCatching { YtBackup.restore(uri.toString()) }.getOrNull()
+                app.settings.downloadDir = uri.toString()
+                app.env.message = restored ?: "Cartella dei download impostata"
+                YtBackup.schedule()
+            }
         }
 
     override fun pickDownloadFolder() {

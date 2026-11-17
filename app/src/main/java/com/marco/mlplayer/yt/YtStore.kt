@@ -100,19 +100,44 @@ class YtStore(context: Context) {
         }
     }
 
+    fun exportJson(): String = JSONObject()
+        .put("favorites", arr(favorites))
+        .put("history", arr(history))
+        .put("searches", JSONArray(searches))
+        .put("saved", JSONArray().apply {
+            saved.forEach {
+                put(JSONObject().put("kind", it.kind.name).put("id", it.browseId).put("title", it.title).put("sub", it.subtitle).put("thumb", it.thumb))
+            }
+        })
+        .toString()
+
+    /** Unisce una copia di riserva a preferiti, salvati e cronologia attuali; restituisce quanti elementi nuovi. */
+    fun mergeFrom(text: String): Int {
+        val o = JSONObject(text)
+        val fav = items(o.optJSONArray("favorites")).filter { n -> favorites.none { it.videoId == n.videoId } }
+        val his = items(o.optJSONArray("history")).filter { n -> history.none { it.videoId == n.videoId } }
+        val sav = o.optJSONArray("saved")?.let { a ->
+            (0 until a.length()).mapNotNull {
+                val e = a.optJSONObject(it) ?: return@mapNotNull null
+                val kind = runCatching { Yt.Kind.valueOf(e.optString("kind")) }.getOrNull() ?: return@mapNotNull null
+                val id = e.optString("id")
+                if (id.isBlank() || saved.any { s -> s.browseId == id }) null
+                else Yt.Entry(kind, id, e.optString("title"), e.optString("sub"), e.optString("thumb"))
+            }
+        } ?: emptyList()
+        if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) return 0
+        favorites = favorites + fav
+        history = (history + his).take(300)
+        saved = saved + sav
+        save()
+        return fav.size + his.size + sav.size
+    }
+
     private fun save() {
-        val json = JSONObject()
-            .put("favorites", arr(favorites))
-            .put("history", arr(history))
-            .put("searches", JSONArray(searches))
-            .put("saved", JSONArray().apply {
-                saved.forEach {
-                    put(JSONObject().put("kind", it.kind.name).put("id", it.browseId).put("title", it.title).put("sub", it.subtitle).put("thumb", it.thumb))
-                }
-            })
-            .toString()
+        val json = exportJson()
         Thread {
             synchronized(lock) { runCatching { file.writeText(json) }.onFailure { AppLog.e("YouTube", "Salvataggio non riuscito", it) } }
         }.start()
+        YtBackup.schedule()
     }
 }

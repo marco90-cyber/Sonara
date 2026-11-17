@@ -38,6 +38,7 @@ class MLPlayerApp : Application() {
         library = Library(this)
         ytStore = com.marco.mlplayer.yt.YtStore(this)
         com.marco.mlplayer.yt.YtDownloads.init(this)
+        com.marco.mlplayer.yt.YtBackup.init(this)
         feedback = Feedback(this, settings)
         engine = AudioEngine(this, settings, library)
         engine.connectService()

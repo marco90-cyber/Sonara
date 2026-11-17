@@ -36,7 +36,8 @@ object YtDownloads {
 
     /** Un gruppo di download: playlist, album, artista oppure i brani singoli. */
     class Group(val id: String, val kind: String, val title: String, val thumb: String)
-    class Entry(val item: Yt.Item, val uri: String, val group: String)
+    class Entry(val item: Yt.Item, val uri: String, val group: String, val path: String = "")
+    private class Fetched(val uri: String, val path: String)
     private class Job(val item: Yt.Item, val group: String)
 
     /** Più recenti in alto. */
@@ -90,20 +91,64 @@ object YtDownloads {
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
                 val item = Yt.Item(o.getString("id"), o.optString("title"), o.optString("artist"), o.optLong("dur"), o.optString("thumb"))
-                entries.add(Entry(item, o.getString("uri"), o.optString("group", SINGLES)))
+                entries.add(Entry(item, o.getString("uri"), o.optString("group", SINGLES), o.optString("path")))
             }
         }.onFailure { AppLog.w(TAG, "Elenco download non leggibile", it) }
     }
 
-    private fun save() {
+    fun exportJson(): String {
         val a = JSONArray()
         entries.forEach {
             a.put(JSONObject().put("id", it.item.videoId).put("title", it.item.title).put("artist", it.item.artist)
-                .put("dur", it.item.durationSec).put("thumb", it.item.thumb).put("uri", it.uri).put("group", it.group))
+                .put("dur", it.item.durationSec).put("thumb", it.item.thumb).put("uri", it.uri).put("group", it.group).put("path", it.path))
         }
         val g = JSONArray()
         groups.forEach { g.put(JSONObject().put("id", it.id).put("kind", it.kind).put("title", it.title).put("thumb", it.thumb)) }
-        runCatching { indexFile.writeText(JSONObject().put("entries", a).put("groups", g).toString()) }
+        return JSONObject().put("entries", a).put("groups", g).toString()
+    }
+
+    private fun save() {
+        runCatching { indexFile.writeText(exportJson()) }
+        YtBackup.schedule()
+    }
+
+    /** Ritrova i file elencati nella copia di riserva dentro [root] (dopo una reinstallazione). Restituisce quanti. */
+    suspend fun restoreFrom(root: DocumentFile, text: String): Int {
+        val o = JSONObject(text)
+        val dirs = HashMap<String, Map<String, DocumentFile>>()
+        fun filesIn(dir: String): Map<String, DocumentFile> = dirs.getOrPut(dir) {
+            val d = if (dir.isEmpty()) root else root.findFile(dir)?.takeIf { it.isDirectory }
+            d?.listFiles()?.mapNotNull { f -> f.name?.let { it to f } }?.toMap() ?: emptyMap()
+        }
+        val gs = ArrayList<Group>()
+        o.optJSONArray("groups")?.let { g ->
+            for (i in 0 until g.length()) {
+                val x = g.getJSONObject(i)
+                gs.add(Group(x.getString("id"), x.optString("kind"), x.optString("title"), x.optString("thumb")))
+            }
+        }
+        val found = ArrayList<Entry>()
+        val arr = o.optJSONArray("entries") ?: JSONArray()
+        for (i in 0 until arr.length()) {
+            val x = arr.getJSONObject(i)
+            val path = x.optString("path")
+            if (path.isBlank()) continue
+            val dir = path.substringBeforeLast('/', "")
+            val doc = filesIn(dir)[path.substringAfterLast('/')] ?: continue
+            val item = Yt.Item(x.getString("id"), x.optString("title"), x.optString("artist"), x.optLong("dur"), x.optString("thumb"))
+            found.add(Entry(item, doc.uri.toString(), x.optString("group", SINGLES), path))
+        }
+        return withContext(Dispatchers.Main) {
+            gs.forEach { g -> if (groups.none { it.id == g.id }) groups.add(g) }
+            var n = 0
+            found.forEach { e ->
+                if (entries.none { it.item.videoId == e.item.videoId && it.group == e.group }) { entries.add(e); n++ }
+            }
+            // gruppo mancante nell'indice: i brani vanno tra i singoli
+            if (entries.any { e -> groups.none { it.id == e.group } } && groups.none { it.id == SINGLES }) groups.add(Group(SINGLES, "Songs", "Brani singoli", ""))
+            if (n > 0) save()
+            n
+        }
     }
 
     fun isDownloaded(videoId: String) = entries.any { it.item.videoId == videoId }
@@ -145,7 +190,7 @@ object YtDownloads {
             if (entries.any { e -> e.item.videoId == it.videoId && e.group == g.id } || isBusy(it.videoId)) continue
             val other = entries.firstOrNull { e -> e.item.videoId == it.videoId }
             if (other != null) {              // già scaricato altrove: lo ricollego, senza riscaricarlo
-                entries.add(0, Entry(it, other.uri, g.id))
+                entries.add(0, Entry(it, other.uri, g.id, other.path))
                 continue
             }
             progress[it.videoId] = -1
@@ -235,7 +280,7 @@ object YtDownloads {
                 current = null
                 progress.remove(job.item.videoId); jobGroup.remove(job.item.videoId)
                 batchDone++
-                r.onSuccess { uri -> entries.add(0, Entry(job.item, uri, job.group)); save() }
+                r.onSuccess { f -> entries.add(0, Entry(job.item, f.uri, job.group, f.path)); save() }
                     .onFailure {
                         if (it is Cancelled) AppLog.i(TAG, "Download fermato: ${job.item.title}")
                         else { failed++; AppLog.e(TAG, "Download non riuscito: ${job.item.title}", it) }
@@ -255,7 +300,7 @@ object YtDownloads {
     fun safeName(s: String) = s.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\s+"), " ").trim().take(120)
 
     /** Scarica a blocchi con Range (come fa il sito, evita i rallentamenti) e restituisce l'uri del file. */
-    private fun fetch(job: Job): String {
+    private fun fetch(job: Job): Fetched {
         val item = job.item
         val root = DocumentFile.fromTreeUri(app, Uri.parse(app.settings.downloadDir))?.takeIf { it.canWrite() }
             ?: throw IOException("Cartella dei download non accessibile")
@@ -303,7 +348,8 @@ object YtDownloads {
                 }
             }
             AppLog.i(TAG, "Scaricato: ${item.title} (${pos / 1024} KB)")
-            return doc.uri.toString()
+            val rel = (if (dir == root) "" else "${dir.name}/") + (doc.name ?: "$base.$ext")
+            return Fetched(doc.uri.toString(), rel)
         } catch (e: Exception) {
             runCatching { doc.delete() }
             throw e
