@@ -70,6 +70,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -109,6 +112,7 @@ fun NowPlayingPage(env: AppEnv) {
     var pos by remember { mutableLongStateOf(0L) }
     var dur by remember { mutableLongStateOf(0L) }
     var drag by remember { mutableFloatStateOf(-1f) }
+    var swipeX by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(t?.id, e.isPlaying) {
         while (true) {
             pos = e.player.currentPosition
@@ -150,7 +154,20 @@ fun NowPlayingPage(env: AppEnv) {
                 val file = remember(t?.id, env.library.revision) { t?.let { env.library.trackCoverFile(it) } }
                 val cover = rememberCover(file, 720)
                 Box(
-                    Modifier.size(side).clip(RoundedCornerShape(28.dp)).background(cs.primaryContainer),
+                    Modifier.size(side)
+                        .graphicsLayer { translationX = swipeX * 0.5f }
+                        .pointerInput(t?.id) {
+                            detectHorizontalDragGestures(
+                                onDragStart = { swipeX = 0f },
+                                onDragEnd = {
+                                    // scorri a sinistra: brano successivo; a destra: precedente
+                                    if (swipeX < -140f) { fb.tapScreen(); e.next() } else if (swipeX > 140f) { fb.tapScreen(); e.previous() }
+                                    swipeX = 0f
+                                },
+                                onDragCancel = { swipeX = 0f },
+                            ) { _, d -> swipeX += d }
+                        }
+                        .clip(RoundedCornerShape(28.dp)).background(cs.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
                     if (cover != null) {
