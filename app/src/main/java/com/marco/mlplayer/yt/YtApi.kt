@@ -118,7 +118,23 @@ object YtApi {
         val arr = sh.optJSONArray("contents") ?: return null
         val cards = ArrayList<Card>()
         for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { cardOf(it) }?.let { cards.add(it) }
-        return if (title.isBlank() || cards.isEmpty()) null else Shelf(title, cards.distinctBy { it.id })
+        if (isPodcast(title)) return null
+        val clean = cards.filter { !isPodcast(it.subtitle) }
+        return if (title.isBlank() || clean.isEmpty()) null else Shelf(title, clean.distinctBy { it.id })
+    }
+
+    /** Podcast ed episodi: non interessano, si tolgono da scaffali, schede e filtri. */
+    fun isPodcast(text: String): Boolean {
+        val t = text.lowercase()
+        return t.contains("podcast") || t.startsWith("episodio") || t.startsWith("episode")
+    }
+
+    /** Artisti simili a quello dato (lo scaffale «Fan…anche» della sua pagina, fatto solo di artisti). */
+    fun similarArtists(channelId: String): List<Yt.Entry> {
+        val shelves = collect(browse(channelId), "musicCarouselShelfRenderer").mapNotNull { parseShelf(it) }
+        val sim = shelves.firstOrNull { sh -> sh.cards.isNotEmpty() && sh.cards.all { it.entry?.kind == Yt.Kind.Artists } }
+        AppLog.i(TAG, "Artisti simili a $channelId: ${sim?.cards?.size ?: 0}")
+        return sim?.cards?.mapNotNull { it.entry }.orEmpty()
     }
 
     /** Una scheda da un elemento di scaffale: brano (riga o scheda) oppure artista, album, playlist. */
@@ -157,7 +173,7 @@ object YtApi {
         for (c in collect(json, "chipCloudChipRenderer")) {
             val title = runsText(c.optJSONObject("text"))
             val p = c.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("params").orEmpty()
-            if (title.isNotBlank() && p.isNotBlank()) chips.add(Chip(title, p))
+            if (title.isNotBlank() && p.isNotBlank() && !isPodcast(title)) chips.add(Chip(title, p))
         }
         val shelves = collect(json, "musicCarouselShelfRenderer").mapNotNull { parseShelf(it) }.distinctBy { it.title }
         AppLog.i(TAG, "Home ${params ?: "base"}: ${chips.size} filtri, ${shelves.size} scaffali")
@@ -172,7 +188,7 @@ object YtApi {
             val title = runsText(b.optJSONObject("buttonText"))
             val ep = b.optJSONObject("clickCommand")?.optJSONObject("browseEndpoint") ?: continue
             val id = ep.optString("browseId"); val params = ep.optString("params")
-            if (title.isBlank() || id.isBlank()) continue
+            if (title.isBlank() || id.isBlank() || isPodcast(title)) continue
             out.add(Yt.Entry(Yt.Kind.Playlists, "cat:$id|$params", title, "", ""))
         }
         AppLog.i(TAG, "Generi e atmosfere: ${out.size}")

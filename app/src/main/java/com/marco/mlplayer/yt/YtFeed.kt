@@ -33,12 +33,21 @@ object YtFeed {
         // 2) «Artisti per te»: i più ascoltati, ritrovati su YouTube Music (accetto solo un nome uguale)
         runCatching {
             val cards = ArrayList<YtApi.Card>()
+            val mine = ArrayList<Yt.Entry>()
             for ((name, _) in YtTaste.topArtists(w, 8)) {
                 val hit = artistEntry(name) ?: continue
+                mine.add(hit)
                 cards.add(YtApi.Card(null, hit))
             }
             AppLog.i(TAG, "Artisti per te: ${cards.size}")
             if (cards.isNotEmpty()) add(YtApi.Shelf("Artisti per te", cards.distinctBy { it.id }))
+            // «Artisti simili»: quelli consigliati nelle pagine dei tuoi 3 artisti principali, senza i tuoi
+            val have = mine.map { it.browseId }.toSet()
+            val sim = LinkedHashMap<String, Yt.Entry>()
+            for (a in mine.take(3)) runCatching { YtApi.similarArtists(a.browseId) }
+                .onSuccess { l -> l.forEach { if (it.browseId !in have) sim.putIfAbsent(it.browseId, it) } }
+                .onFailure { AppLog.w(TAG, "Simili a «${a.title}» non riusciti: ${it.message}") }
+            if (sim.isNotEmpty()) add(YtApi.Shelf("Artisti simili", sim.values.take(20).map { YtApi.Card(null, it) }))
         }.onFailure { AppLog.w(TAG, "Artisti per te non riuscito: ${it.message}") }
         return Result(shelves, radios)
     }
