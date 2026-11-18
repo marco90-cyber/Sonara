@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -228,9 +229,9 @@ fun NowPlayingPage(env: AppEnv) {
                     }
                     IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleFavorite(yi) }) {
                         Icon(
-                            if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            contentDescription = if (fav) "Togli dai preferiti" else "Mi piace: aggiungi ai preferiti",
-                            tint = if (fav) cs.primary else cs.onSurface, modifier = Modifier.size(28.dp),
+                            Icons.Filled.ThumbUp,
+                            contentDescription = if (fav) "Togli il mi piace" else "Mi piace",
+                            tint = if (fav) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(26.dp),
                         )
                     }
                 }
