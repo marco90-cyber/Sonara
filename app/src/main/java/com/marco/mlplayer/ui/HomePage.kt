@@ -186,13 +186,6 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             Button(onClick = { load() }) { Text("Riprova") }
         }
         else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
-            if (past.isNotEmpty()) item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(past) { q ->
-                        AssistChip(onClick = { search(q) }, label = { Text(q, maxLines = 1) }, leadingIcon = { Icon(Icons.Filled.History, null) })
-                    }
-                }
-            }
             if (HomeUi.chips.isNotEmpty()) item(key = "chips") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
                     items(HomeUi.chips, key = { it.title }) { c ->
@@ -240,6 +233,14 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             items(shelves.orEmpty(), key = { "y:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             if (HomeUi.loading) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (shelves != null && HomeUi.error != null) item { Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+            if (past.isNotEmpty()) item(key = "ricerche") {
+                Column(Modifier.padding(top = 12.dp)) {
+                    Text("Ricerche recenti", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
+                        items(past) { q -> AssistChip(onClick = { search(q) }, label = { Text(q, maxLines = 1) }, leadingIcon = { Icon(Icons.Filled.History, null) }) }
+                    }
+                }
+            }
             item {
                 OutlinedButton(onClick = { load(); loadPersonal(true) }, modifier = Modifier.padding(16.dp)) {
                     Icon(Icons.Filled.Refresh, null); Text("Aggiorna suggerimenti")
@@ -280,7 +281,7 @@ internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpe
                         if (c.thumb.isNotBlank()) AsyncImage(c.thumb, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     }
                     Spacer(Modifier.height(6.dp))
-                    Text(c.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(c.title, style = MaterialTheme.typography.titleSmall, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (c.subtitle.isNotBlank()) Text(c.subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
