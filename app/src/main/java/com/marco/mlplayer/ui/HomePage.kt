@@ -186,10 +186,15 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             Button(onClick = { load() }) { Text("Riprova") }
         }
         else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
+            if (past.isNotEmpty()) item(key = "ricerche") {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+                    items(past) { q -> Pill(q, false, Icons.Filled.History) { search(q) } }
+                }
+            }
             if (HomeUi.chips.isNotEmpty()) item(key = "chips") {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
                     items(HomeUi.chips, key = { it.title }) { c ->
-                        FilterChip(selected = HomeUi.activeChip == c, onClick = { pickChip(if (HomeUi.activeChip == c) null else c) }, label = { Text(c.title, maxLines = 1) })
+                        Pill(c.title, HomeUi.activeChip == c, null) { pickChip(if (HomeUi.activeChip == c) null else c) }
                     }
                 }
             }
@@ -225,7 +230,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                 Column(Modifier.padding(top = 12.dp)) {
                     Text("Generi e atmosfere", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
-                        items(HomeUi.genres, key = { it.browseId }) { g -> AssistChip(onClick = { open(g) }, label = { Text(g.title, maxLines = 1) }) }
+                        items(HomeUi.genres, key = { it.browseId }) { g -> Pill(g.title, false, null) { open(g) } }
                     }
                 }
             }
@@ -233,20 +238,27 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             items(shelves.orEmpty(), key = { "y:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             if (HomeUi.loading) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (shelves != null && HomeUi.error != null) item { Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
-            if (past.isNotEmpty()) item(key = "ricerche") {
-                Column(Modifier.padding(top = 12.dp)) {
-                    Text("Ricerche recenti", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
-                        items(past) { q -> AssistChip(onClick = { search(q) }, label = { Text(q, maxLines = 1) }, leadingIcon = { Icon(Icons.Filled.History, null) }) }
-                    }
-                }
-            }
             item {
                 OutlinedButton(onClick = { load(); loadPersonal(true) }, modifier = Modifier.padding(16.dp)) {
                     Icon(Icons.Filled.Refresh, null); Text("Aggiorna suggerimenti")
                 }
             }
         }
+    }
+}
+
+/** Etichetta tonda senza bordo: sfondo tenue, o colorato se selezionata. */
+@Composable
+private fun Pill(text: String, selected: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector?, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    androidx.compose.foundation.layout.Row(
+        Modifier.clip(RoundedCornerShape(50)).background(if (selected) cs.primaryContainer else cs.surfaceVariant.copy(alpha = 0.6f))
+            .combinedClickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) { Icon(icon, null, Modifier.size(16.dp), tint = cs.onSurfaceVariant); Spacer(Modifier.width(6.dp)) }
+        Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = if (selected) cs.onPrimaryContainer else cs.onSurface)
     }
 }
 
@@ -261,7 +273,7 @@ internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpe
             items(cards, key = { (it.song?.videoId ?: it.entry?.browseId.orEmpty()) + it.title }) { c ->
                 val artist = c.entry?.kind == Yt.Kind.Artists
                 Column(
-                    Modifier.width(140.dp).clip(RoundedCornerShape(14.dp)).combinedClickable(
+                    Modifier.width(140.dp).combinedClickable(
                         onLongClick = onLongPress?.let { f -> { c.entry?.let(f) } },
                         onClick = {
                             env.feedback.tapScreen()
