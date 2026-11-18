@@ -112,7 +112,8 @@ fun openYtEntry(env: AppEnv, e: Yt.Entry, trail: MutableList<Yt.Entry> = YtUi.tr
     env.app.appScope.launch {
         val r = withContext(Dispatchers.IO) {
             runCatching {
-                if (e.kind == Yt.Kind.Artists) YtApi.artist(e.browseId)
+                if (e.browseId.startsWith("cat:")) YtApi.category(e.browseId)
+                else if (e.kind == Yt.Kind.Artists) YtApi.artist(e.browseId)
                 else YtApi.Detail(
                     // i brani degli album spesso non hanno la miniatura: uso quella dell'album
                     YtApi.playlistTracks(e.browseId).map { if (it.thumb.isBlank() && e.thumb.isNotBlank()) it.copy(thumb = e.thumb) else it },
@@ -307,7 +308,8 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
                     shelves = d?.shelves.orEmpty(),
                     onOpen = { openYtEntry(env, it) },
                     circle = open.kind == Yt.Kind.Artists,
-                    bookmark = open,
+                    // le categorie di Esplora non sono playlist vere: niente segnalibro né download (finirebbero in Salvati e Android Auto)
+                    bookmark = open.takeIf { !it.browseId.startsWith("cat:") },
                     onRefresh = if (open.browseId.startsWith("imp:")) ({ refreshImported(env, open, YtUi.trail) }) else null,
                 )
             }

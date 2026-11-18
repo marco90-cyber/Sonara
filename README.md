@@ -35,7 +35,7 @@ pubbliche di Spotify, Deezer e YouTube.
 
 ### Ricerca e scoperta
 - Ricerca su YouTube Music con i filtri **Brani**, **Artisti**, **Album** e **Playlist**, e la scheda del primo risultato in evidenza.
-- **Home** con le ricerche recenti, gli ascoltati di recente, i suggerimenti di YouTube Music e la sezione **Importate**.
+- **Home** con le ricerche recenti, i filtri di atmosfera (Relax, Energia…), **Radio per te**, gli ascoltati di recente, i suggerimenti dai tuoi ascolti (*Perché hai ascoltato…*, *Artisti per te*, *Preferiti da riascoltare*), la sezione **Importate**, **Generi e atmosfere**, nuove uscite, classifiche e i suggerimenti di YouTube Music. I gusti si calcolano sul telefono dagli ascolti (contati dopo 30 secondi), senza account.
 - Pagina di playlist, album e artista con copertina, **Riproduci**, **Casuale**, **Scarica** e segnalibro.
 - **Radio** da un brano: parti da una canzone e lascia andare i consigli.
 - **Preferiti**, **cronologia** e **segnalibro** per salvare playlist, album e artisti nella Libreria.

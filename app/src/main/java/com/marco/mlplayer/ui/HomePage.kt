@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
@@ -63,6 +64,12 @@ private object HomeUi {
     /** Scaffali personali (dai tuoi ascolti) e relative radio; si rifanno al massimo ogni 6 ore. */
     var personal by mutableStateOf<List<YtApi.Shelf>>(emptyList())
     var radios by mutableStateOf<List<List<Yt.Item>>>(emptyList())
+    var chips by mutableStateOf<List<YtApi.Chip>>(emptyList())
+    var activeChip by mutableStateOf<YtApi.Chip?>(null)
+    var chipShelves by mutableStateOf<List<YtApi.Shelf>?>(null)
+    var genres by mutableStateOf<List<Yt.Entry>>(emptyList())
+    var explore by mutableStateOf<List<YtApi.Shelf>>(emptyList())
+    var exploreAt = 0L
     var personalAt = 0L
     var personalLoading = false
 }
@@ -82,7 +89,10 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
         HomeUi.loading = true
         HomeUi.error = null
         env.app.appScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { YtApi.home() } }
+            val r = withContext(Dispatchers.IO) {
+                runCatching { YtApi.homeFeed().first }.onSuccess { if (it.isNotEmpty()) HomeUi.chips = it }
+                runCatching { YtApi.home() }
+            }
             HomeUi.loading = false
             r.onSuccess {
                 HomeUi.shelves = it
@@ -109,7 +119,36 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                 .onFailure { AppLog.e("YouTube", "Suggerimenti personali non riusciti", it) }
         }
     }
+    fun loadExplore() {
+        if (System.currentTimeMillis() - HomeUi.exploreAt < 6 * 3600_000L) return
+        HomeUi.exploreAt = System.currentTimeMillis()
+        // ogni sezione è indipendente: se una non risponde, le altre restano
+        env.app.appScope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching { YtApi.moodsAndGenres() }.onSuccess { HomeUi.genres = it }.onFailure { AppLog.w("HomeFeed", "Generi non riusciti: ${it.message}") }
+                val extra = ArrayList<YtApi.Shelf>()
+                runCatching { YtApi.newReleases() }.onSuccess { s -> s?.let { extra.add(it) } }.onFailure { AppLog.w("HomeFeed", "Nuove uscite non riuscite: ${it.message}") }
+                HomeUi.explore = extra.distinctBy { it.title }
+                runCatching { YtApi.charts() }.onSuccess { extra.addAll(it) }.onFailure { AppLog.w("HomeFeed", "Classifiche non riuscite: ${it.message}") }
+                HomeUi.explore = extra.distinctBy { it.title }
+                if (HomeUi.genres.isEmpty() && extra.isEmpty()) HomeUi.exploreAt = 0L   // riprovo alla prossima apertura
+            }
+        }
+    }
+    fun pickChip(c: YtApi.Chip?) {
+        HomeUi.activeChip = c
+        HomeUi.chipShelves = null
+        if (c == null) return
+        env.app.appScope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { YtApi.homeFeed(c.params).second } }
+            if (HomeUi.activeChip == c) {
+                r.onFailure { AppLog.w("HomeFeed", "Filtro «${c.title}» non riuscito: ${it.message}") }
+                HomeUi.chipShelves = r.getOrDefault(emptyList())
+            }
+        }
+    }
     LaunchedEffect(Unit) {
+        loadExplore()
         if (!HomeUi.loading && HomeUi.shelves == null) load()
         loadPersonal(false)
     }
@@ -154,6 +193,20 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                     }
                 }
             }
+            if (HomeUi.chips.isNotEmpty()) item(key = "chips") {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
+                    items(HomeUi.chips, key = { it.title }) { c ->
+                        FilterChip(selected = HomeUi.activeChip == c, onClick = { pickChip(if (HomeUi.activeChip == c) null else c) }, label = { Text(c.title, maxLines = 1) })
+                    }
+                }
+            }
+            if (HomeUi.activeChip != null) {
+                val cs2 = HomeUi.chipShelves
+                if (cs2 == null) item(key = "chip-loading") { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+                else if (cs2.isEmpty()) item(key = "chip-empty") { Text("Nessun suggerimento per questo filtro", color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+                else items(cs2, key = { "c:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
+                return@LazyColumn
+            }
             if (HomeUi.radios.isNotEmpty()) item(key = "radio-per-te") {
                 Button(onClick = {
                     env.feedback.tapScreen()
@@ -175,6 +228,15 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             if (imported.isNotEmpty()) item(key = "imported") {
                 ShelfRow("Importate", imported.map { YtApi.Card(null, it.entry) }, env, open, onLongPress = { removing = it })
             }
+            if (HomeUi.genres.isNotEmpty()) item(key = "generi") {
+                Column(Modifier.padding(top = 12.dp)) {
+                    Text("Generi e atmosfere", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
+                        items(HomeUi.genres, key = { it.browseId }) { g -> AssistChip(onClick = { open(g) }, label = { Text(g.title, maxLines = 1) }) }
+                    }
+                }
+            }
+            items(HomeUi.explore, key = { "x:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             items(shelves.orEmpty(), key = { "y:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             if (HomeUi.loading) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (shelves != null && HomeUi.error != null) item { Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }

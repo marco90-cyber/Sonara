@@ -42,8 +42,11 @@ object YtApi {
         }
     }
 
-    fun browse(browseId: String?, continuation: String? = null): JSONObject =
-        post("browse", JSONObject().apply { if (browseId != null) put("browseId", browseId) }, continuation)
+    fun browse(browseId: String?, continuation: String? = null, params: String? = null): JSONObject =
+        post("browse", JSONObject().apply {
+            if (browseId != null) put("browseId", browseId)
+            if (params != null) put("params", params)
+        }, continuation)
 
     // ------------------------------------------------------------------ playlist e artisti
 
@@ -114,32 +117,91 @@ object YtApi {
         val title = runsText(collect(sh.optJSONObject("header"), "title").firstOrNull())
         val arr = sh.optJSONArray("contents") ?: return null
         val cards = ArrayList<Card>()
-        for (i in 0 until arr.length()) {
-            val c = arr.optJSONObject(i) ?: continue
-            c.optJSONObject("musicResponsiveListItemRenderer")?.let { r -> parseTrack(r)?.let { cards.add(Card(it, null)) } }
-            val t = c.optJSONObject("musicTwoRowItemRenderer") ?: continue
-            val nav = t.optJSONObject("navigationEndpoint")
-            val videoId = nav?.optJSONObject("watchEndpoint")?.optString("videoId").orEmpty()
-            val browseId = nav?.optJSONObject("browseEndpoint")?.optString("browseId").orEmpty()
-            val name = runsText(t.optJSONObject("title"))
-            val sub = runsText(t.optJSONObject("subtitle"))
-            val thumb = thumbOf(t.optJSONObject("thumbnailRenderer"))
-            if (name.isBlank()) continue
-            if (videoId.isNotBlank()) {
-                val parts = sub.split(" • ").map { it.trim() }.filter { it.isNotBlank() }
-                val artist = if (parts.size > 1 && parts[0].lowercase() in setOf("brano", "song", "video")) parts[1] else parts.firstOrNull().orEmpty()
-                cards.add(Card(Yt.Item(videoId, name, artist, 0, thumb), null))
-            } else {
-                val kind = when {
-                    browseId.startsWith("UC") -> Yt.Kind.Artists
-                    browseId.startsWith("MPRE") -> Yt.Kind.Albums
-                    browseId.startsWith("VL") -> Yt.Kind.Playlists
-                    else -> continue
-                }
-                cards.add(Card(null, Yt.Entry(kind, browseId, name, sub, thumb)))
-            }
-        }
+        for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { cardOf(it) }?.let { cards.add(it) }
         return if (title.isBlank() || cards.isEmpty()) null else Shelf(title, cards.distinctBy { it.id })
+    }
+
+    /** Una scheda da un elemento di scaffale: brano (riga o scheda) oppure artista, album, playlist. */
+    private fun cardOf(c: JSONObject): Card? {
+        c.optJSONObject("musicResponsiveListItemRenderer")?.let { r -> parseTrack(r)?.let { return Card(it, null) } }
+        val t = c.optJSONObject("musicTwoRowItemRenderer") ?: return null
+        val nav = t.optJSONObject("navigationEndpoint")
+        val videoId = nav?.optJSONObject("watchEndpoint")?.optString("videoId").orEmpty()
+        val browseId = nav?.optJSONObject("browseEndpoint")?.optString("browseId").orEmpty()
+        val name = runsText(t.optJSONObject("title"))
+        val sub = runsText(t.optJSONObject("subtitle"))
+        val thumb = thumbOf(t.optJSONObject("thumbnailRenderer"))
+        if (name.isBlank()) return null
+        if (videoId.isNotBlank()) {
+            val parts = sub.split(" • ").map { it.trim() }.filter { it.isNotBlank() }
+            val artist = if (parts.size > 1 && parts[0].lowercase() in setOf("brano", "song", "video")) parts[1] else parts.firstOrNull().orEmpty()
+            return Card(Yt.Item(videoId, name, artist, 0, thumb), null)
+        }
+        val kind = when {
+            browseId.startsWith("UC") -> Yt.Kind.Artists
+            browseId.startsWith("MPRE") -> Yt.Kind.Albums
+            browseId.startsWith("VL") -> Yt.Kind.Playlists
+            else -> return null
+        }
+        return Card(null, Yt.Entry(kind, browseId, name, sub, thumb))
+    }
+
+    // ------------------------------------------------------------------ esplora
+
+    data class Chip(val title: String, val params: String)
+
+    /** Home con i filtri in alto («Relax», «Energia pura»…): i filtri e gli scaffali della pagina [params] (null = home normale). */
+    fun homeFeed(params: String? = null): Pair<List<Chip>, List<Shelf>> {
+        val json = browse("FEmusic_home", params = params)
+        val chips = ArrayList<Chip>()
+        for (c in collect(json, "chipCloudChipRenderer")) {
+            val title = runsText(c.optJSONObject("text"))
+            val p = c.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")?.optString("params").orEmpty()
+            if (title.isNotBlank() && p.isNotBlank()) chips.add(Chip(title, p))
+        }
+        val shelves = collect(json, "musicCarouselShelfRenderer").mapNotNull { parseShelf(it) }.distinctBy { it.title }
+        AppLog.i(TAG, "Home ${params ?: "base"}: ${chips.size} filtri, ${shelves.size} scaffali")
+        return chips.distinctBy { it.title } to shelves
+    }
+
+    /** Generi e atmosfere. Le voci hanno id «cat:<browseId>|<params>» e si aprono con [category]. */
+    fun moodsAndGenres(): List<Yt.Entry> {
+        val json = browse("FEmusic_moods_and_genres")
+        val out = ArrayList<Yt.Entry>()
+        for (b in collect(json, "musicNavigationButtonRenderer")) {
+            val title = runsText(b.optJSONObject("buttonText"))
+            val ep = b.optJSONObject("clickCommand")?.optJSONObject("browseEndpoint") ?: continue
+            val id = ep.optString("browseId"); val params = ep.optString("params")
+            if (title.isBlank() || id.isBlank()) continue
+            out.add(Yt.Entry(Yt.Kind.Playlists, "cat:$id|$params", title, "", ""))
+        }
+        AppLog.i(TAG, "Generi e atmosfere: ${out.size}")
+        return out.distinctBy { it.browseId }
+    }
+
+    /** Gli scaffali di una categoria (id «cat:<browseId>|<params>»). */
+    fun category(entryId: String): Detail {
+        val raw = entryId.removePrefix("cat:")
+        val browseId = raw.substringBefore('|')
+        val params = raw.substringAfter('|', "").ifBlank { null }
+        val shelves = collect(browse(browseId, params = params), "musicCarouselShelfRenderer").mapNotNull { parseShelf(it) }.distinctBy { it.title }
+        AppLog.i(TAG, "Categoria $browseId: ${shelves.size} scaffali")
+        return Detail(emptyList(), shelves)
+    }
+
+    /** Nuove uscite (album e singoli): in una griglia o in uno scaffale, a seconda della risposta. */
+    fun newReleases(): Shelf? {
+        val json = browse("FEmusic_new_releases_albums")
+        val cards = collect(json, "musicTwoRowItemRenderer").mapNotNull { cardOf(JSONObject().put("musicTwoRowItemRenderer", it)) }
+        AppLog.i(TAG, "Nuove uscite: ${cards.size}")
+        return if (cards.isEmpty()) null else Shelf("Nuove uscite", cards.distinctBy { it.id }.take(30))
+    }
+
+    /** Classifiche (senza account: quelle del tuo paese o globali), al massimo 3 scaffali. */
+    fun charts(): List<Shelf> {
+        val shelves = collect(browse("FEmusic_charts"), "musicCarouselShelfRenderer").mapNotNull { parseShelf(it) }.distinctBy { it.title }.take(3)
+        AppLog.i(TAG, "Classifiche: ${shelves.size} scaffali")
+        return shelves
     }
 
     /** Radio di un brano: i brani che YouTube Music propone di seguito (il primo è il brano stesso). */
