@@ -54,3 +54,6 @@ Sonara - nato da MLPlayer (https://github.com/marco90-cyber/MlPlayer), stessa li
 
 NewPipeExtractor (https://github.com/TeamNewPipe/NewPipeExtractor) - GPL-3.0
   Libreria usata per ricerca e stream di YouTube Music (come in LastWave).
+
+Google Sans Flex (app/src/main/res/font/google_sans_flex.ttf, preso da LastWave) - SIL Open Font License 1.1.
+Scala dei testi e angoli dei componenti ripresi dal tema di LastWave (GPL-3.0).
