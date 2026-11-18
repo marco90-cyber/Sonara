@@ -248,6 +248,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
 }
 
 /** Etichetta tonda senza bordo: sfondo tenue, o colorato se selezionata. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Pill(text: String, selected: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector?, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
