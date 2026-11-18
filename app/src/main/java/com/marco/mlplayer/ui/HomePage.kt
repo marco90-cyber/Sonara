@@ -1,6 +1,8 @@
 package com.marco.mlplayer.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -230,7 +232,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             }
             if (HomeUi.genres.isNotEmpty()) item(key = "generi") {
                 Column(Modifier.padding(top = 12.dp)) {
-                    Text("Generi e atmosfere", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    Text("GENERI E ATMOSFERE", style = MaterialTheme.typography.titleMedium, letterSpacing = 1.sp, color = cs.primary, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
                         items(HomeUi.genres, key = { it.browseId }) { g -> Pill(g.title, false, null) { open(g) } }
                     }
@@ -255,7 +257,8 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
 private fun Pill(text: String, selected: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector?, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     androidx.compose.foundation.layout.Row(
-        Modifier.clip(RoundedCornerShape(50)).background(if (selected) cs.primary else cs.surfaceVariant.copy(alpha = 0.6f))
+        Modifier.clip(CyberShape).background(if (selected) cs.primary else cs.surfaceVariant)
+            .border(1.dp, if (selected) cs.primary else cs.outlineVariant, CyberShape)
             .combinedClickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -270,7 +273,7 @@ private fun Pill(text: String, selected: Boolean, icon: androidx.compose.ui.grap
 internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpen: (Yt.Entry) -> Unit, onLongPress: ((Yt.Entry) -> Unit)? = null) {
     val cs = MaterialTheme.colorScheme
     Column(Modifier.padding(top = 12.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        Text(title.uppercase(), style = MaterialTheme.typography.titleMedium, letterSpacing = 1.sp, color = cs.primary, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             maxLines = 1, overflow = TextOverflow.Ellipsis)
         LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(cards, key = { (it.song?.videoId ?: it.entry?.browseId.orEmpty()) + it.title }) { c ->
@@ -286,7 +289,8 @@ internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpe
                     ),
                 ) {
                     Box(
-                        Modifier.size(140.dp).clip(if (artist) CircleShape else RoundedCornerShape(18.dp)).background(cs.primaryContainer),
+                        Modifier.size(140.dp).clip(if (artist) CircleShape else CyberShape).background(cs.primaryContainer)
+                            .border(1.dp, cs.outlineVariant, if (artist) CircleShape else CyberShape),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(

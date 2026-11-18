@@ -70,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -150,7 +151,7 @@ fun NowPlayingPage(env: AppEnv) {
                 val file = remember(t?.id, env.library.revision) { t?.let { env.library.trackCoverFile(it) } }
                 val cover = rememberCover(file, 720)
                 Box(
-                    Modifier.size(side).clip(RoundedCornerShape(28.dp)).background(cs.primaryContainer),
+                    Modifier.size(side).border(1.5.dp, cs.primary, CyberShape).clip(CyberShape).background(cs.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
                     if (cover != null) {
@@ -245,7 +246,7 @@ fun NowPlayingPage(env: AppEnv) {
                 }
                 FilledIconButton(
                     onClick = { fb.tapScreen(); env.playPause() },
-                    modifier = Modifier.size(76.dp),
+                    modifier = Modifier.size(76.dp).shadow(18.dp, androidx.compose.foundation.shape.CircleShape, ambientColor = cs.primary, spotColor = cs.primary),
                 ) {
                     Icon(
                         if (e.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -283,7 +284,7 @@ fun NowPlayingPage(env: AppEnv) {
             // prossimo brano in coda
             val next = e.queueTracks.getOrNull(e.queueIndex + 1)
             if (next != null) Surface(
-                shape = RoundedCornerShape(16.dp), color = cs.surfaceContainerHigh.copy(alpha = 0.7f),
+                shape = CyberShape, color = cs.surfaceContainerHigh, border = BorderStroke(1.dp, cs.outlineVariant),
                 modifier = Modifier.fillMaxWidth().clickable { fb.tapScreen(); env.showQueue = true },
             ) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
