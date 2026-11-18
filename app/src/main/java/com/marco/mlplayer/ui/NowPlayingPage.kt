@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -117,7 +118,11 @@ fun NowPlayingPage(env: AppEnv) {
         }
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+    Column(
+        Modifier.fillMaxSize()
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(cs.primaryContainer.copy(alpha = 0.55f), cs.background)))
+            .statusBarsPadding()
+    ) {
         // barra in alto
         Row(
             Modifier.fillMaxWidth().height(56.dp).padding(start = 24.dp, end = 8.dp),
@@ -161,17 +166,6 @@ fun NowPlayingPage(env: AppEnv) {
                         val chip = IconButtonDefaults.filledTonalIconButtonColors(
                             containerColor = cs.surfaceContainerHighest.copy(alpha = 0.85f), contentColor = cs.onSurface
                         )
-                        val yi = Yt.itemOf(t)
-                        if (yi != null) {
-                            val fav = env.app.ytStore.isFavorite(yi.videoId)
-                            FilledTonalIconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleFavorite(yi) }, colors = chip) {
-                                Icon(
-                                    if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                    contentDescription = if (fav) "Togli dai preferiti" else "Aggiungi ai preferiti",
-                                    tint = if (fav) cs.primary else cs.onSurface,
-                                )
-                            }
-                        }
                         FilledTonalIconButton(onClick = { fb.tapScreen(); env.openPage(Overlay.Lyrics) }, colors = chip) {
                             Icon(Icons.Filled.Lyrics, contentDescription = "Testo")
                         }
@@ -187,7 +181,7 @@ fun NowPlayingPage(env: AppEnv) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         t?.title ?: "Nessun brano",
-                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium, maxLines = 1,
+                        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1,
                         modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2500)
                     )
                     Text(
@@ -196,6 +190,17 @@ fun NowPlayingPage(env: AppEnv) {
                         style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
+                }
+                val yi = t?.let { Yt.itemOf(it) }
+                if (yi != null) {
+                    val fav = env.app.ytStore.isFavorite(yi.videoId)
+                    IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleFavorite(yi) }) {
+                        Icon(
+                            if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            contentDescription = if (fav) "Togli dai preferiti" else "Aggiungi ai preferiti",
+                            tint = if (fav) cs.primary else cs.onSurface, modifier = Modifier.size(28.dp),
+                        )
+                    }
                 }
                 if (t != null && e.hiResNow) {
                     Spacer(Modifier.width(8.dp))
@@ -235,11 +240,9 @@ fun NowPlayingPage(env: AppEnv) {
                 IconToggleButton(checked = e.shuffleOn, onCheckedChange = { fb.tapScreen(); e.toggleShuffle() }) {
                     Icon(Icons.Filled.Shuffle, contentDescription = "Casuale", tint = if (e.shuffleOn) cs.primary else cs.onSurfaceVariant)
                 }
-                FilledTonalIconButton(
-                    onClick = { fb.tapScreen(); e.previous() },
-                    modifier = Modifier.size(56.dp),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = cs.surfaceContainerHighest, contentColor = cs.onSurface),
-                ) { Icon(Icons.Filled.SkipPrevious, contentDescription = "Brano precedente", modifier = Modifier.size(28.dp)) }
+                IconButton(onClick = { fb.tapScreen(); e.previous() }, modifier = Modifier.size(56.dp)) {
+                    Icon(Icons.Filled.SkipPrevious, contentDescription = "Brano precedente", modifier = Modifier.size(36.dp))
+                }
                 FilledIconButton(
                     onClick = { fb.tapScreen(); env.playPause() },
                     modifier = Modifier.size(76.dp),
@@ -250,11 +253,9 @@ fun NowPlayingPage(env: AppEnv) {
                         modifier = Modifier.size(36.dp)
                     )
                 }
-                FilledTonalIconButton(
-                    onClick = { fb.tapScreen(); e.next() },
-                    modifier = Modifier.size(56.dp),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = cs.surfaceContainerHighest, contentColor = cs.onSurface),
-                ) { Icon(Icons.Filled.SkipNext, contentDescription = "Brano successivo", modifier = Modifier.size(28.dp)) }
+                IconButton(onClick = { fb.tapScreen(); e.next() }, modifier = Modifier.size(56.dp)) {
+                    Icon(Icons.Filled.SkipNext, contentDescription = "Brano successivo", modifier = Modifier.size(36.dp))
+                }
                 IconToggleButton(checked = e.repeatMode != 0, onCheckedChange = { fb.tapScreen(); e.cycleRepeat() }) {
                     Icon(
                         if (e.repeatMode == 2) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
@@ -277,6 +278,26 @@ fun NowPlayingPage(env: AppEnv) {
                     ),
                 )
                 Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            }
+
+            // prossimo brano in coda
+            val next = e.queueTracks.getOrNull(e.queueIndex + 1)
+            if (next != null) Surface(
+                shape = RoundedCornerShape(16.dp), color = cs.surfaceContainerHigh.copy(alpha = 0.7f),
+                modifier = Modifier.fillMaxWidth().clickable { fb.tapScreen(); env.showQueue = true },
+            ) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.MusicNote, null, tint = cs.onPrimaryContainer)
+                        if (next.coverUrl.isNotBlank()) coil.compose.AsyncImage(next.coverUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Prossimo brano", style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+                        Text(next.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Text(next.artist, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 110.dp))
+                }
             }
 
             if (env.settings.showVu) VuCard(env)

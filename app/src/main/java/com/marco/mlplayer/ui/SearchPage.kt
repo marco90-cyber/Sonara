@@ -266,10 +266,23 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
+        if (YtUi.open == null) Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                androidx.compose.ui.text.buildAnnotatedString {
+                    append("Son")
+                    withStyle(androidx.compose.ui.text.SpanStyle(color = cs.primary)) { append("ara") }
+                },
+                style = MaterialTheme.typography.headlineMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { env.feedback.tapScreen(); env.tab = Tab.Settings }) {
+                Icon(androidx.compose.material.icons.Icons.Filled.Settings, contentDescription = "Impostazioni")
+            }
+        }
         OutlinedTextField(
             value = YtUi.query,
             onValueChange = { YtUi.query = it },
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp),
             singleLine = true,
             placeholder = { Text("Cerca o incolla il link di una playlist") },
             leadingIcon = { Icon(Icons.Filled.Search, null) },

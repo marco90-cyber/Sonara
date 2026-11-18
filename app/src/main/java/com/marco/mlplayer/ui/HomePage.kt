@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QueueMusic
@@ -193,6 +194,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             }
             if (HomeUi.chips.isNotEmpty()) item(key = "chips") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
+                    item(key = "home-pill") { Pill("Home", HomeUi.activeChip == null, Icons.Filled.Home) { pickChip(null) } }
                     items(HomeUi.chips, key = { it.title }) { c ->
                         Pill(c.title, HomeUi.activeChip == c, null) { pickChip(if (HomeUi.activeChip == c) null else c) }
                     }
@@ -228,7 +230,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             }
             if (HomeUi.genres.isNotEmpty()) item(key = "generi") {
                 Column(Modifier.padding(top = 12.dp)) {
-                    Text("Generi e atmosfere", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    Text("Generi e atmosfere", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
                         items(HomeUi.genres, key = { it.browseId }) { g -> Pill(g.title, false, null) { open(g) } }
                     }
@@ -253,13 +255,13 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
 private fun Pill(text: String, selected: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector?, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     androidx.compose.foundation.layout.Row(
-        Modifier.clip(RoundedCornerShape(50)).background(if (selected) cs.primaryContainer else cs.surfaceVariant.copy(alpha = 0.6f))
+        Modifier.clip(RoundedCornerShape(50)).background(if (selected) cs.primary else cs.surfaceVariant.copy(alpha = 0.6f))
             .combinedClickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (icon != null) { Icon(icon, null, Modifier.size(16.dp), tint = cs.onSurfaceVariant); Spacer(Modifier.width(6.dp)) }
+        if (icon != null) { Icon(icon, null, Modifier.size(16.dp), tint = if (selected) cs.onPrimary else cs.onSurfaceVariant); Spacer(Modifier.width(6.dp)) }
         Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            color = if (selected) cs.onPrimaryContainer else cs.onSurface)
+            color = if (selected) cs.onPrimary else cs.onSurface)
     }
 }
 
@@ -268,7 +270,7 @@ private fun Pill(text: String, selected: Boolean, icon: androidx.compose.ui.grap
 internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpen: (Yt.Entry) -> Unit, onLongPress: ((Yt.Entry) -> Unit)? = null) {
     val cs = MaterialTheme.colorScheme
     Column(Modifier.padding(top = 12.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             maxLines = 1, overflow = TextOverflow.Ellipsis)
         LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(cards, key = { (it.song?.videoId ?: it.entry?.browseId.orEmpty()) + it.title }) { c ->
@@ -284,7 +286,7 @@ internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpe
                     ),
                 ) {
                     Box(
-                        Modifier.size(140.dp).clip(if (artist) CircleShape else RoundedCornerShape(14.dp)).background(cs.primaryContainer),
+                        Modifier.size(140.dp).clip(if (artist) CircleShape else RoundedCornerShape(18.dp)).background(cs.primaryContainer),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
