@@ -95,7 +95,7 @@ object YtApi {
         val id get() = song?.videoId ?: entry?.browseId.orEmpty()
         val title get() = song?.title ?: entry?.title.orEmpty()
         val subtitle get() = song?.artist ?: entry?.subtitle.orEmpty()
-        val thumb get() = song?.cover ?: entry?.thumb.orEmpty()
+        val thumb get() = song?.cover ?: Yt.bigThumb(entry?.thumb.orEmpty())
     }
 
     data class Shelf(val title: String, val cards: List<Card>)

@@ -48,7 +48,7 @@ object Yt {
         val thumb: String,
     ) {
         /** Miniatura da mostrare: quella trovata oppure, se manca, quella del video (esiste sempre). */
-        val cover: String get() = thumb.ifBlank { "https://i.ytimg.com/vi/$videoId/mqdefault.jpg" }
+        val cover: String get() = if (thumb.isBlank()) "https://i.ytimg.com/vi/$videoId/mqdefault.jpg" else bigThumb(thumb)
 
         fun toJson(): JSONObject =
             JSONObject().put("id", videoId).put("title", title).put("artist", artist).put("dur", durationSec).put("thumb", thumb)
@@ -61,6 +61,11 @@ object Yt {
             }
         }
     }
+
+    private val THUMB_SIZE = Regex("=(w\\d+-h\\d+|s\\d+)")
+
+    /** Le miniature di Google hanno la misura nell'indirizzo («=w226-h226», «=s120»): ne chiedo una nitida da 544 px. */
+    fun bigThumb(url: String): String = if (url.contains("googleusercontent.com") || url.contains("ggpht.com")) url.replace(THUMB_SIZE, "=w544-h544") else url
 
     class Resolved(val url: String, val expiresAtMs: Long, val mime: String, val bitrateKbps: Int)
 

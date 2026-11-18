@@ -83,6 +83,7 @@ import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.util.khz
 import com.marco.mlplayer.util.mmss
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.log10
 import kotlin.math.pow
 
@@ -201,11 +202,16 @@ fun NowPlayingPage(env: AppEnv) {
                         style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1,
                         modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2500)
                     )
+                    val ytItem = t?.let { Yt.itemOf(it) }
                     Text(
-                        if (t != null) listOf(t.artist, t.album).filter { it.isNotBlank() }.joinToString(" — ")
-                        else "Scegli la musica dalla Libreria",
+                        if (t != null) {
+                            // per i brani di YouTube Music l'album è solo «YouTube Music»: non lo mostro
+                            if (ytItem != null) t.artist else listOf(t.artist, t.album).filter { it.isNotBlank() }.joinToString(" — ")
+                        } else "Scegli la musica dalla Libreria",
                         style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        // toccando il nome si apre la pagina dell'artista
+                        modifier = if (ytItem != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable { fb.tapScreen(); openArtist(env, ytItem.artist) } else Modifier,
                     )
                 }
                 val yi = t?.let { Yt.itemOf(it) }
@@ -377,5 +383,20 @@ fun QueueSheet(env: AppEnv) {
             }
         }
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+/** Apre la pagina dell'artista (il primo se sono più d'uno): lo cerco su YouTube Music e lo mostro nella Home. */
+private fun openArtist(env: AppEnv, artist: String) {
+    val name = com.marco.mlplayer.yt.YtTaste.artistNames(artist).firstOrNull() ?: return
+    env.app.appScope.launch {
+        val hit = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { Yt.searchEntries(name, Yt.Kind.Artists, 1) }.getOrNull()
+                ?.firstOrNull { com.marco.mlplayer.yt.YtTaste.norm(it.title) == com.marco.mlplayer.yt.YtTaste.norm(name) }
+        }
+        if (hit == null) { env.message = "Artista non trovato su YouTube Music"; return@launch }
+        YtUi.reset()
+        env.tab = Tab.Home
+        openYtEntry(env, hit)
     }
 }
