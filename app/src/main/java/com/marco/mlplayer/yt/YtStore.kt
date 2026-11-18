@@ -25,6 +25,10 @@ class YtStore(context: Context) {
     var saved by mutableStateOf(emptyList<Yt.Entry>())
         private set
 
+    /** Ascolti contati per brano (chiave: id video). */
+    var plays by mutableStateOf(emptyMap<String, YtPlay>())
+        private set
+
     init {
         runCatching {
             if (file.exists()) {
@@ -32,6 +36,7 @@ class YtStore(context: Context) {
                 favorites = items(o.optJSONArray("favorites"))
                 history = items(o.optJSONArray("history"))
                 saved = entries(o.optJSONArray("saved"))
+                plays = playsOf(o.optJSONArray("plays"))
                 searches = o.optJSONArray("searches")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
             }
         }.onFailure { AppLog.e("YouTube", "Lettura preferiti non riuscita", it) }
@@ -62,8 +67,20 @@ class YtStore(context: Context) {
         save()
     }
 
+    /** Un ascolto vero (brano sentito per un po'): conta, ricorda la data e tiene al massimo 2000 brani. */
+    @Synchronized
+    fun recordPlay(item: Yt.Item, now: Long = System.currentTimeMillis()) {
+        val old = plays[item.videoId]
+        val next = YtPlay(item, (old?.count ?: 0) + 1, old?.firstAt ?: now, now)
+        var m = plays + (item.videoId to next)
+        if (m.size > 2000) m = m.values.sortedByDescending { it.lastAt }.take(2000).associateBy { it.item.videoId }
+        plays = m
+        save()
+    }
+
     fun clearHistory() {
         history = emptyList()
+        plays = emptyMap()
         save()
     }
 
@@ -77,6 +94,17 @@ class YtStore(context: Context) {
     private fun items(a: JSONArray?): List<Yt.Item> =
         if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let { o -> Yt.Item.fromJson(o) } }
 
+    private fun playsOf(a: JSONArray?): Map<String, YtPlay> {
+        if (a == null) return emptyMap()
+        val m = LinkedHashMap<String, YtPlay>()
+        for (i in 0 until a.length()) {
+            val o = a.optJSONObject(i) ?: continue
+            val item = Yt.Item.fromJson(o) ?: continue
+            m[item.videoId] = YtPlay(item, o.optInt("n", 1).coerceAtLeast(1), o.optLong("first"), o.optLong("last"))
+        }
+        return m
+    }
+
     private fun entries(a: JSONArray?): List<Yt.Entry> =
         if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let { o -> Yt.Entry.fromJson(o) } }
 
@@ -85,6 +113,9 @@ class YtStore(context: Context) {
         .put("history", JSONArray().apply { history.forEach { put(it.toJson()) } })
         .put("searches", JSONArray(searches))
         .put("saved", JSONArray().apply { saved.forEach { put(it.toJson()) } })
+        .put("plays", JSONArray().apply {
+            plays.values.forEach { put(it.item.toJson().put("n", it.count).put("first", it.firstAt).put("last", it.lastAt)) }
+        })
         .toString()
 
     /** Unisce una copia di riserva a preferiti, salvati e cronologia attuali; restituisce quanti elementi nuovi. */
@@ -93,12 +124,21 @@ class YtStore(context: Context) {
         val fav = items(o.optJSONArray("favorites")).filter { n -> favorites.none { it.videoId == n.videoId } }
         val his = items(o.optJSONArray("history")).filter { n -> history.none { it.videoId == n.videoId } }
         val sav = entries(o.optJSONArray("saved")).filter { n -> saved.none { it.browseId == n.browseId } }
-        if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) return 0
+        val inPlays = playsOf(o.optJSONArray("plays"))
+        val mergedPlays = HashMap(plays)
+        var newPlays = 0
+        for ((k, p) in inPlays) {
+            val cur = mergedPlays[k]
+            if (cur == null) { mergedPlays[k] = p; newPlays++ }
+            else mergedPlays[k] = YtPlay(cur.item, maxOf(cur.count, p.count), minOf(cur.firstAt, p.firstAt).takeIf { it > 0 } ?: maxOf(cur.firstAt, p.firstAt), maxOf(cur.lastAt, p.lastAt))
+        }
+        if (inPlays.isNotEmpty()) plays = mergedPlays
+        if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) { if (newPlays > 0) save(); return newPlays }
         favorites = favorites + fav
         history = (history + his).take(300)
         saved = saved + sav
         save()
-        return fav.size + his.size + sav.size
+        return fav.size + his.size + sav.size + newPlays
     }
 
     /** Scrive il file in coda su un thread dedicato: l'ordine è quello delle modifiche e il file non resta mai a metà. */

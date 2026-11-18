@@ -49,6 +49,8 @@ import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
+import com.marco.mlplayer.yt.YtFeed
+import com.marco.mlplayer.yt.YtTaste
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,6 +60,11 @@ private object HomeUi {
     var shelves by mutableStateOf<List<YtApi.Shelf>?>(null)
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+    /** Scaffali personali (dai tuoi ascolti) e relative radio; si rifanno al massimo ogni 6 ore. */
+    var personal by mutableStateOf<List<YtApi.Shelf>>(emptyList())
+    var radios by mutableStateOf<List<List<Yt.Item>>>(emptyList())
+    var personalAt = 0L
+    var personalLoading = false
 }
 
 /** Home e ricerca nella stessa pagina: barra di ricerca in alto, sotto i suggerimenti di YouTube Music. */
@@ -86,7 +93,26 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             }
         }
     }
-    LaunchedEffect(Unit) { if (!HomeUi.loading && HomeUi.shelves == null) load() }
+    fun loadPersonal(force: Boolean) {
+        if (HomeUi.personalLoading) return
+        if (!force && System.currentTimeMillis() - HomeUi.personalAt < 6 * 3600_000L) return
+        val st = env.app.ytStore
+        val w = YtTaste.weights(st.plays, st.history, st.favorites)
+        if (w.isEmpty()) return
+        HomeUi.personalLoading = true
+        env.app.appScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching { YtFeed.build(w) { sh -> HomeUi.personal = (HomeUi.personal.filter { it.title != sh.title } + sh) } }
+            }
+            HomeUi.personalLoading = false
+            r.onSuccess { HomeUi.radios = it.radios; HomeUi.personalAt = System.currentTimeMillis() }
+                .onFailure { AppLog.e("YouTube", "Suggerimenti personali non riusciti", it) }
+        }
+    }
+    LaunchedEffect(Unit) {
+        if (!HomeUi.loading && HomeUi.shelves == null) load()
+        loadPersonal(false)
+    }
 
     var removing by remember { mutableStateOf<Yt.Entry?>(null) }
     removing?.let { r ->
@@ -109,6 +135,9 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
     val imported = env.app.ytImports.all
     val recent = env.app.ytStore.history.take(15)
     val past = env.app.ytStore.searches.take(8)
+    val forgotten = remember(env.app.ytStore.favorites, env.app.ytStore.plays) {
+        YtTaste.forgottenFavorites(env.app.ytStore.favorites, env.app.ytStore.plays, 15)
+    }
     when {
         shelves == null && HomeUi.loading && recent.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         shelves == null && HomeUi.error != null && recent.isEmpty() -> Column(
@@ -125,17 +154,32 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                     }
                 }
             }
-            if (recent.isNotEmpty()) item {
+            if (HomeUi.radios.isNotEmpty()) item(key = "radio-per-te") {
+                Button(onClick = {
+                    env.feedback.tapScreen()
+                    // un brano a turno da ciascuna radio, senza doppioni
+                    val lists = HomeUi.radios
+                    val mixed = ArrayList<Yt.Item>()
+                    val seen = HashSet<String>()
+                    for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) for (l in lists) l.getOrNull(i)?.let { if (seen.add(it.videoId)) mixed.add(it) }
+                    if (mixed.isNotEmpty()) env.playFrom(mixed.map { Yt.toTrack(it) }, 0)
+                }, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { Text("Radio per te") }
+            }
+            if (recent.isNotEmpty()) item(key = "recent") {
                 ShelfRow("Ascoltati di recente", recent.map { YtApi.Card(it, null) }, env, open)
             }
-            if (imported.isNotEmpty()) item {
+            items(HomeUi.personal, key = { "p:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
+            if (forgotten.isNotEmpty()) item(key = "forgotten") {
+                ShelfRow("Preferiti da riascoltare", forgotten.map { YtApi.Card(it, null) }, env, open)
+            }
+            if (imported.isNotEmpty()) item(key = "imported") {
                 ShelfRow("Importate", imported.map { YtApi.Card(null, it.entry) }, env, open, onLongPress = { removing = it })
             }
-            items(shelves.orEmpty(), key = { it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
+            items(shelves.orEmpty(), key = { "y:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             if (HomeUi.loading) item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (shelves != null && HomeUi.error != null) item { Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
             item {
-                OutlinedButton(onClick = { load() }, modifier = Modifier.padding(16.dp)) {
+                OutlinedButton(onClick = { load(); loadPersonal(true) }, modifier = Modifier.padding(16.dp)) {
                     Icon(Icons.Filled.Refresh, null); Text("Aggiorna suggerimenti")
                 }
             }

@@ -299,6 +299,21 @@ class AudioEngine(
         }
     }
 
+    private val playHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var playCounter: Runnable? = null
+
+    /** Un brano YouTube conta come ascoltato solo dopo ~30 secondi sullo stesso brano (non se lo salti subito). */
+    private fun countPlayLater(t: Track) {
+        playCounter?.let { playHandler.removeCallbacks(it) }
+        playCounter = null
+        val item = Yt.itemOf(t) ?: return
+        val r = Runnable {
+            if (currentTrack?.uri == t.uri) (app as com.marco.mlplayer.MLPlayerApp).ytStore.recordPlay(item)
+        }
+        playCounter = r
+        playHandler.postDelayed(r, 30_000L)
+    }
+
     private fun updateCurrent() {
         val idx = player.currentMediaItemIndex
         val t = queue.getOrNull(idx)
@@ -310,7 +325,10 @@ class AudioEngine(
         }
         queueIndex = idx
         queueSize = queue.size
-        if (t != null && t.uri != prevUri) Yt.itemOf(t)?.let { (app as com.marco.mlplayer.MLPlayerApp).ytStore.addHistory(it) }
+        if (t != null && t.uri != prevUri) {
+            Yt.itemOf(t)?.let { (app as com.marco.mlplayer.MLPlayerApp).ytStore.addHistory(it) }
+            countPlayLater(t)
+        }
         if (t != null && t.coverUrl.isNotBlank() && library.trackCoverFile(t) == null && coverTried.add(t.id)) {
             // miniatura del brano online: la scarico una volta e la tengo come copertina del brano
             scanExecutor.execute {
