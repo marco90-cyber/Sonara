@@ -65,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -116,6 +117,8 @@ fun NowPlayingPage(env: AppEnv) {
     var dur by remember { mutableLongStateOf(0L) }
     var drag by remember { mutableFloatStateOf(-1f) }
     var swipeX by remember { mutableFloatStateOf(0f) }
+    val swipeScope = androidx.compose.runtime.rememberCoroutineScope()
+    var swipeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     LaunchedEffect(t?.id, e.isPlaying) {
         while (true) {
             pos = e.player.currentPosition
@@ -158,17 +161,36 @@ fun NowPlayingPage(env: AppEnv) {
                 val cover = rememberCover(file, 720)
                 Box(
                     Modifier.size(side)
-                        .graphicsLayer { translationX = swipeX * 0.5f }
-                        .pointerInput(t?.id) {
+                        .graphicsLayer {
+                            // la copertina segue il dito, si inclina un po' e sfuma
+                            val f = (swipeX / size.width).coerceIn(-1f, 1f)
+                            translationX = swipeX
+                            rotationZ = f * 6f
+                            alpha = 1f - kotlin.math.abs(f) * 0.6f
+                        }
+                        .pointerInput(Unit) {
                             detectHorizontalDragGestures(
-                                onDragStart = { swipeX = 0f },
+                                onDragStart = { swipeJob?.cancel() },
                                 onDragEnd = {
-                                    // scorri a sinistra: brano successivo; a destra: precedente
-                                    if (swipeX < -140f) { fb.tapScreen(); e.next() } else if (swipeX > 140f) { fb.tapScreen(); e.previous() }
-                                    swipeX = 0f
+                                    val x = swipeX
+                                    val w = size.width.toFloat()
+                                    swipeJob = swipeScope.launch {
+                                        val spring = androidx.compose.animation.core.spring<Float>(dampingRatio = 0.75f, stiffness = 400f)
+                                        if (kotlin.math.abs(x) > w * 0.22f) {
+                                            // fuori dallo schermo, cambio brano, la nuova copertina rientra dal lato opposto
+                                            val dir = if (x < 0) -1f else 1f
+                                            androidx.compose.animation.core.animate(x, dir * w, animationSpec = androidx.compose.animation.core.tween(130)) { v, _ -> swipeX = v }
+                                            fb.tapScreen()
+                                            if (dir < 0) e.next() else e.previous()
+                                            swipeX = -dir * w * 0.5f
+                                            androidx.compose.animation.core.animate(swipeX, 0f, animationSpec = spring) { v, _ -> swipeX = v }
+                                        } else {
+                                            androidx.compose.animation.core.animate(x, 0f, animationSpec = spring) { v, _ -> swipeX = v }
+                                        }
+                                    }
                                 },
-                                onDragCancel = { swipeX = 0f },
-                            ) { _, d -> swipeX += d }
+                                onDragCancel = { swipeJob = swipeScope.launch { androidx.compose.animation.core.animate(swipeX, 0f) { v, _ -> swipeX = v } } },
+                            ) { change, d -> change.consume(); swipeX += d }
                         }
                         .clip(RoundedCornerShape(28.dp)).background(cs.primaryContainer),
                     contentAlignment = Alignment.Center
