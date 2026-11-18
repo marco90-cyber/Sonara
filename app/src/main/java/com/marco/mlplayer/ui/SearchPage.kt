@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
@@ -270,13 +271,13 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
             Text(
                 androidx.compose.ui.text.buildAnnotatedString {
                     append("Son")
-                    withStyle(androidx.compose.ui.text.SpanStyle(color = cs.primary)) { append("ara") }
+                    androidx.compose.ui.text.withStyle(androidx.compose.ui.text.SpanStyle(color = cs.primary)) { append("ara") }
                 },
                 style = MaterialTheme.typography.headlineMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
             IconButton(onClick = { env.feedback.tapScreen(); env.tab = Tab.Settings }) {
-                Icon(androidx.compose.material.icons.Icons.Filled.Settings, contentDescription = "Impostazioni")
+                Icon(Icons.Filled.Settings, contentDescription = "Impostazioni")
             }
         }
         OutlinedTextField(
