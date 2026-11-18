@@ -45,4 +45,14 @@ class YtTasteTest {
         val plays = mapOf("a" to YtPlay(a, 1, 1, 500), "c" to YtPlay(c, 1, 1, 100))
         assertEquals(listOf("b", "c", "a"), YtTaste.forgottenFavorites(listOf(a, b, c), plays, 5).map { it.videoId })
     }
+
+    @Test
+    fun excluderBlocksTrackAndAfterThreeDislikesTheArtist() {
+        val d = listOf(mk("1", "Zero"), mk("2", "Zero"))
+        val one = YtTaste.excluder(d)
+        assertEquals(true, one(mk("1", "Zero")))
+        assertEquals(false, one(mk("9", "Zero")))
+        val three = YtTaste.excluder(d + mk("3", "zero"))
+        assertEquals(true, three(mk("9", "Zero")))
+    }
 }

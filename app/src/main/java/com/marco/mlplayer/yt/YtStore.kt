@@ -25,6 +25,13 @@ class YtStore(context: Context) {
     var saved by mutableStateOf(emptyList<Yt.Entry>())
         private set
 
+    /** Brani segnati come «non mi piace»: spariscono dai suggerimenti personali. */
+    var dislikes by mutableStateOf(emptyList<Yt.Item>())
+        private set
+    /** Cresce a ogni «mi piace» o «non mi piace»: la Home sa così che deve rifare i suggerimenti. */
+    var tasteVersion by mutableStateOf(0)
+        private set
+
     /** Ascolti contati per brano (chiave: id video). */
     var plays by mutableStateOf(emptyMap<String, YtPlay>())
         private set
@@ -37,6 +44,7 @@ class YtStore(context: Context) {
                 history = items(o.optJSONArray("history"))
                 saved = entries(o.optJSONArray("saved"))
                 plays = playsOf(o.optJSONArray("plays"))
+                dislikes = items(o.optJSONArray("dislikes"))
                 searches = o.optJSONArray("searches")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
             }
         }.onFailure { AppLog.e("YouTube", "Lettura preferiti non riuscita", it) }
@@ -57,6 +65,20 @@ class YtStore(context: Context) {
     fun toggleFavorite(item: Yt.Item): Boolean {
         val now = !isFavorite(item.videoId)
         favorites = if (now) listOf(item) + favorites else favorites.filter { it.videoId != item.videoId }
+        if (now) dislikes = dislikes.filter { it.videoId != item.videoId }
+        tasteVersion++
+        save()
+        return now
+    }
+
+    fun isDisliked(videoId: String) = dislikes.any { it.videoId == videoId }
+
+    /** «Non mi piace»: lo toglie dai preferiti e dai suggerimenti; toccando di nuovo si annulla. */
+    fun toggleDislike(item: Yt.Item): Boolean {
+        val now = !isDisliked(item.videoId)
+        dislikes = if (now) listOf(item) + dislikes.filter { it.videoId != item.videoId } else dislikes.filter { it.videoId != item.videoId }
+        if (now) favorites = favorites.filter { it.videoId != item.videoId }
+        tasteVersion++
         save()
         return now
     }
@@ -113,6 +135,7 @@ class YtStore(context: Context) {
         .put("history", JSONArray().apply { history.forEach { put(it.toJson()) } })
         .put("searches", JSONArray(searches))
         .put("saved", JSONArray().apply { saved.forEach { put(it.toJson()) } })
+        .put("dislikes", JSONArray().apply { dislikes.forEach { put(it.toJson()) } })
         .put("plays", JSONArray().apply {
             plays.values.forEach { put(it.item.toJson().put("n", it.count).put("first", it.firstAt).put("last", it.lastAt)) }
         })
@@ -124,6 +147,8 @@ class YtStore(context: Context) {
         val fav = items(o.optJSONArray("favorites")).filter { n -> favorites.none { it.videoId == n.videoId } }
         val his = items(o.optJSONArray("history")).filter { n -> history.none { it.videoId == n.videoId } }
         val sav = entries(o.optJSONArray("saved")).filter { n -> saved.none { it.browseId == n.browseId } }
+        val dis = items(o.optJSONArray("dislikes")).filter { n -> dislikes.none { it.videoId == n.videoId } }
+        if (dis.isNotEmpty()) dislikes = dislikes + dis
         val inPlays = playsOf(o.optJSONArray("plays"))
         val mergedPlays = HashMap(plays)
         var newPlays = 0
@@ -133,7 +158,7 @@ class YtStore(context: Context) {
             else mergedPlays[k] = YtPlay(cur.item, maxOf(cur.count, p.count), minOf(cur.firstAt, p.firstAt).takeIf { it > 0 } ?: maxOf(cur.firstAt, p.firstAt), maxOf(cur.lastAt, p.lastAt))
         }
         if (inPlays.isNotEmpty()) plays = mergedPlays
-        if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) { if (newPlays > 0) save(); return newPlays }
+        if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) { if (newPlays > 0 || dis.isNotEmpty()) save(); return newPlays + dis.size }
         favorites = favorites + fav
         history = (history + his).take(300)
         saved = saved + sav

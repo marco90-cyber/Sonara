@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -217,10 +218,18 @@ fun NowPlayingPage(env: AppEnv) {
                 val yi = t?.let { Yt.itemOf(it) }
                 if (yi != null) {
                     val fav = env.app.ytStore.isFavorite(yi.videoId)
+                    val dis = env.app.ytStore.isDisliked(yi.videoId)
+                    IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleDislike(yi); if (!dis) env.message = "Non lo proporrò più nei suggerimenti" }) {
+                        Icon(
+                            Icons.Filled.ThumbDown,
+                            contentDescription = if (dis) "Annulla non mi piace" else "Non mi piace",
+                            tint = if (dis) cs.error else cs.onSurfaceVariant, modifier = Modifier.size(26.dp),
+                        )
+                    }
                     IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleFavorite(yi) }) {
                         Icon(
                             if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            contentDescription = if (fav) "Togli dai preferiti" else "Aggiungi ai preferiti",
+                            contentDescription = if (fav) "Togli dai preferiti" else "Mi piace: aggiungi ai preferiti",
                             tint = if (fav) cs.primary else cs.onSurface, modifier = Modifier.size(28.dp),
                         )
                     }

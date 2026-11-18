@@ -17,6 +17,15 @@ object YtTaste {
         return out
     }
 
+    /** Esclude i brani non graditi e gli artisti con almeno 3 brani non graditi (uno solo non basta a bandire un artista). */
+    fun excluder(dislikes: List<Yt.Item>): (Yt.Item) -> Boolean {
+        val ids = dislikes.map { it.videoId }.toSet()
+        val perArtist = HashMap<String, Int>()
+        for (d in dislikes) for (a in artistNames(d.artist).take(1)) perArtist.merge(norm(a), 1, Int::plus)
+        val blocked = perArtist.filterValues { it >= 3 }.keys
+        return { i -> i.videoId in ids || artistNames(i.artist).firstOrNull()?.let { norm(it) in blocked } == true }
+    }
+
     /** I brani più ascoltati, dal più al meno. */
     fun topTracks(w: Map<String, Pair<Yt.Item, Int>>, n: Int): List<Yt.Item> =
         w.values.sortedByDescending { it.second }.take(n).map { it.first }

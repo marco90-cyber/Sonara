@@ -11,7 +11,7 @@ object YtFeed {
     class Result(val shelves: List<YtApi.Shelf>, val radios: List<List<Yt.Item>>)
 
     /** Da chiamare fuori dal thread principale. [onShelf] riceve gli scaffali man mano che arrivano. */
-    fun build(w: Map<String, Pair<Yt.Item, Int>>, onShelf: (YtApi.Shelf) -> Unit): Result {
+    fun build(w: Map<String, Pair<Yt.Item, Int>>, bad: (Yt.Item) -> Boolean, onShelf: (YtApi.Shelf) -> Unit): Result {
         val shelves = ArrayList<YtApi.Shelf>()
         val radios = ArrayList<List<Yt.Item>>()
         fun add(s: YtApi.Shelf) { shelves.add(s); onShelf(s) }
@@ -22,7 +22,7 @@ object YtFeed {
         val seeds = YtTaste.seeds(w, 3)
         for (seed in seeds) {
             runCatching {
-                val r = YtApi.radio(seed.videoId)
+                val r = YtApi.radio(seed.videoId).filter { !bad(it) }
                 radios.add(r)
                 val cards = r.filter { it.videoId != seed.videoId && it.videoId !in known }.take(20).map { YtApi.Card(it, null) }
                 AppLog.i(TAG, "Radio da «${seed.title}»: ${r.size} brani, ${cards.size} nuovi")

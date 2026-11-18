@@ -72,6 +72,7 @@ private object HomeUi {
     var explore by mutableStateOf<List<YtApi.Shelf>>(emptyList())
     var exploreAt = 0L
     var personalAt = 0L
+    var version = 0
     var personalLoading = false
 }
 
@@ -108,12 +109,15 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
         if (HomeUi.personalLoading) return
         if (!force && System.currentTimeMillis() - HomeUi.personalAt < 6 * 3600_000L) return
         val st = env.app.ytStore
-        val w = YtTaste.weights(st.plays, st.history, st.favorites)
+        val bad = YtTaste.excluder(st.dislikes)
+        val w = YtTaste.weights(st.plays, st.history, st.favorites).filterValues { !bad(it.first) }
         if (w.isEmpty()) return
         HomeUi.personalLoading = true
+        HomeUi.version = st.tasteVersion
+        if (force) HomeUi.personal = emptyList()
         env.app.appScope.launch {
             val r = withContext(Dispatchers.IO) {
-                runCatching { YtFeed.build(w) { sh -> HomeUi.personal = (HomeUi.personal.filter { it.title != sh.title } + sh) } }
+                runCatching { YtFeed.build(w, bad) { sh -> HomeUi.personal = (HomeUi.personal.filter { it.title != sh.title } + sh) } }
             }
             HomeUi.personalLoading = false
             r.onSuccess { HomeUi.radios = it.radios; HomeUi.personalAt = System.currentTimeMillis() }
@@ -151,7 +155,8 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
     LaunchedEffect(Unit) {
         loadExplore()
         if (!HomeUi.loading && HomeUi.shelves == null) load()
-        loadPersonal(false)
+        // dopo un «mi piace» o «non mi piace» rifaccio i suggerimenti personali
+        loadPersonal(env.app.ytStore.tasteVersion != HomeUi.version)
     }
 
     var removing by remember { mutableStateOf<Yt.Entry?>(null) }
