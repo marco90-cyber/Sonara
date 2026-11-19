@@ -109,15 +109,48 @@ object Yt {
      * [progress] riceve l'elenco parziale dopo ogni pagina, così i primi risultati si vedono subito.
      */
     fun search(query: String, maxPages: Int = 5, progress: (List<Item>) -> Unit = {}): List<Item> {
+        val last = searchWith(query, YoutubeSearchQueryHandlerFactory.MUSIC_SONGS, maxPages, progress)
+        AppLog.i(TAG, "Ricerca \"$query\": ${last.size} brani")
+        return last
+    }
+
+    private fun searchWith(query: String, filter: String, maxPages: Int, progress: (List<Item>) -> Unit = {}): List<Item> {
         init()
-        val ex = ServiceList.YouTube.getSearchExtractor(query, listOf(YoutubeSearchQueryHandlerFactory.MUSIC_SONGS), "")
+        val ex = ServiceList.YouTube.getSearchExtractor(query, listOf(filter), "")
         var last = emptyList<Item>()
         collectPages(ex, maxPages) { items ->
             last = items.filterIsInstance<StreamInfoItem>().mapNotNull { it.toItem() }.distinctBy { it.videoId }
             progress(last)
         }
-        AppLog.i(TAG, "Ricerca \"$query\": ${last.size} brani")
         return last
+    }
+
+    /** Un risultato per «Cambia sorgente»: il brano e se è un video (clip, live) invece di una traccia audio. */
+    data class Source(val item: Item, val isVideo: Boolean)
+
+    /**
+     * Cerca sia i brani sia i video musicali, per poter scegliere un'altra sorgente audio di un brano.
+     * Prima le tracce audio, poi i video; senza doppioni. Da chiamare fuori dal thread principale.
+     */
+    fun searchSources(query: String, maxPages: Int = 2): List<Source> {
+        var songs = emptyList<Item>()
+        var videos = emptyList<Item>()
+        val vt = Thread {
+            videos = runCatching { searchWith(query, YoutubeSearchQueryHandlerFactory.MUSIC_VIDEOS, maxPages) }
+                .onFailure { AppLog.w(TAG, "Ricerca video non riuscita: ${it.message}") }.getOrDefault(emptyList())
+        }.apply { isDaemon = true; start() }
+        var songError: Throwable? = null
+        try {
+            songs = searchWith(query, YoutubeSearchQueryHandlerFactory.MUSIC_SONGS, maxPages)
+        } catch (e: Exception) {
+            songError = e
+        }
+        vt.join()
+        if (songError != null && videos.isEmpty()) throw songError
+        val songIds = songs.map { it.videoId }.toSet()
+        val out = songs.map { Source(it, false) } + videos.filter { it.videoId !in songIds }.map { Source(it, true) }
+        AppLog.i(TAG, "Ricerca sorgenti \"$query\": ${songs.size} brani, ${videos.size} video")
+        return out
     }
 
     /** Titolo e copertina di una playlist YouTube; null se non si riesce a leggerli. Bloccante. */
@@ -222,9 +255,10 @@ object Yt {
     private val prefetching: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /** Prepara in anticipo il link del brano (di solito il successivo della coda), così all'avvio non c'è da aspettare. */
-    fun prefetch(videoId: String) {
+    fun prefetch(requested: String) {
+        val videoId = YtOverrides.target(requested)
         val quality = currentQuality()
-        if (runCatching { YtDownloads.fileUri(videoId) }.getOrNull() != null) return
+        if (!YtOverrides.has(requested) && runCatching { YtDownloads.fileUri(videoId) }.getOrNull() != null) return
         if (cache[cacheKey(videoId, false, quality)]?.let { it.expiresAtMs - 90_000 > System.currentTimeMillis() } == true) return
         if (!prefetching.add(videoId)) return
         prefetchExec.execute {
@@ -242,7 +276,9 @@ object Yt {
      * Link audio valido adesso per il video (con cache fino alla scadenza). Bloccante.
      * [quality]: 0 = il flusso più ricco, 1 = alta, 2 = risparmio; i download usano sempre la massima.
      */
-    fun resolve(videoId: String, preferMp4: Boolean = false, quality: Int = 0): Resolved {
+    fun resolve(requested: String, preferMp4: Boolean = false, quality: Int = 0, followOverride: Boolean = true): Resolved {
+        // se l'utente ha cambiato la sorgente del brano si apre l'altro video (l'indirizzo "yt:<id>" resta quello originale)
+        val videoId = if (followOverride) YtOverrides.target(requested) else requested
         val now = System.currentTimeMillis()
         val key = cacheKey(videoId, preferMp4, quality)
         cache[key]?.takeIf { it.expiresAtMs - 90_000 > now }?.let { return it }
@@ -273,7 +309,8 @@ object Yt {
     }
 
     /** Dimentica il link (scaduto o rifiutato, in entrambe le varianti) e la cache dello script del player. */
-    fun invalidate(videoId: String) {
+    fun invalidate(requested: String) {
+        val videoId = YtOverrides.target(requested)
         cache.keys.removeIf { it.startsWith("$videoId#") }
         runCatching { YoutubeJavaScriptPlayerManager.clearAllCaches() }
     }
@@ -284,7 +321,12 @@ object Yt {
         return Item(t.uri.removePrefix("yt:"), t.title, t.artist, t.durationMs / 1000, t.coverUrl)
     }
 
-    fun toTrack(i: Item) = Track(
+    fun toTrack(raw: Item): Track {
+        val i = YtOverrides.apply(raw)
+        return trackOf(i)
+    }
+
+    private fun trackOf(i: Item) = Track(
         id = "yt_${i.videoId}",
         uri = "yt:${i.videoId}",
         title = i.title,

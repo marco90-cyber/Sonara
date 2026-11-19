@@ -39,9 +39,11 @@ object YtDataSource {
             if (spec.uri.scheme != "yt") return@Resolver spec
             val id = spec.uri.schemeSpecificPart.orEmpty()
             if (id.isBlank()) throw IOException("Indirizzo YouTube non valido")
-            YtDownloads.fileUri(id)?.let { return@Resolver spec.withUri(it) }
+            // con la sorgente cambiata il file scaricato (dell'audio sbagliato) non si usa e la cache segue il video scelto
+            val overridden = YtOverrides.has(id)
+            if (!overridden) YtDownloads.fileUri(id)?.let { return@Resolver spec.withUri(it) }
             val r = Yt.resolve(id, quality = Yt.currentQuality())
-            spec.buildUpon().setUri(Uri.parse(r.url)).setKey("yt:$id:${r.mime}:${r.bitrateKbps}").build()
+            spec.buildUpon().setUri(Uri.parse(r.url)).setKey("yt:${YtOverrides.target(id)}:${r.mime}:${r.bitrateKbps}").build()
         })
     }
 }

@@ -435,7 +435,7 @@ class AudioEngine(
      * Dopo una modifica dei tag: aggiorna i brani della coda (titolo, copertina nella notifica).
      * Se il file del brano in riproduzione è stato riscritto, lo riapre alla stessa posizione.
      */
-    fun replaceTracks(updated: Map<String, Track>, rewritten: Set<String>) {
+    fun replaceTracks(updated: Map<String, Track>, rewritten: Set<String>, restart: Boolean = false) {
         if (queue.isEmpty()) return
         val reload = currentTrack?.uri?.let { it in rewritten } == true
         queue = queue.map { updated[it.uri] ?: it }
@@ -445,7 +445,7 @@ class AudioEngine(
         }
         if (reload) {
             val idx = player.currentMediaItemIndex
-            val pos = player.currentPosition
+            val pos = if (restart) 0L else player.currentPosition
             val play = player.playWhenReady
             val t = queue.getOrNull(idx)
             if (t != null) runCatching { player.replaceMediaItem(idx, toMediaItem(t)) }

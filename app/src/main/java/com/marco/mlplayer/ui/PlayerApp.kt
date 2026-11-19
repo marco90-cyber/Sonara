@@ -143,7 +143,7 @@ fun PlayerApp(env: AppEnv) {
                 }
 
                 // pagine sopra alle sezioni
-                for (o in listOf(Overlay.Analyzer, Overlay.Log, Overlay.Lyrics, Overlay.Cover, Overlay.Tags)) {
+                for (o in listOf(Overlay.Analyzer, Overlay.Log, Overlay.Lyrics, Overlay.Cover, Overlay.Tags, Overlay.Source)) {
                     AnimatedVisibility(
                         visible = env.overlay == o,
                         enter = slideInVertically(tween(260)) { it / 6 } + fadeIn(tween(200)),
@@ -156,6 +156,7 @@ fun PlayerApp(env: AppEnv) {
                                 Overlay.Lyrics -> LyricsPage(env)
                                 Overlay.Cover -> CoverPage(env)
                                 Overlay.Tags -> TagEditorPage(env)
+                                Overlay.Source -> SourcePage(env)
                                 Overlay.None -> {}
                             }
                         }

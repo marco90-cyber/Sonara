@@ -40,6 +40,7 @@ class MLPlayerApp : Application() {
         library = Library(this)
         ytStore = com.marco.mlplayer.yt.YtStore(this)
         ytImports = com.marco.mlplayer.yt.YtImports(this)
+        com.marco.mlplayer.yt.YtOverrides.init(this)
         com.marco.mlplayer.yt.YtDownloads.init(this)
         com.marco.mlplayer.yt.YtBackup.init(this)
         val connectivity = getSystemService(android.net.ConnectivityManager::class.java)

@@ -33,7 +33,9 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -114,6 +116,16 @@ fun TrackMenuSheet(env: AppEnv) {
             MenuEntry(Icons.Filled.MusicNote, "Avvia radio", "Brani simili a questo, da YouTube Music") {
                 env.showTrackMenu = false; env.playWithRadio(yi)
             }
+            val changed = com.marco.mlplayer.yt.YtOverrides[yi.videoId]
+            MenuEntry(
+                Icons.Filled.SwapHoriz, "Cambia sorgente",
+                if (changed != null) "Ora: ${changed.target.title}" else "Audio sbagliato o videoclip? Scegli un altro brano da YouTube",
+            ) { env.openPage(Overlay.Source) }
+            if (changed != null) {
+                MenuEntry(Icons.Filled.Restore, "Ripristina sorgente originale", changed.orig.title) {
+                    env.showTrackMenu = false; restoreSource(env, yi.videoId)
+                }
+            }
         }
         if (!t.uri.startsWith("yt:")) {
             MenuEntry(Icons.Filled.Image, "Copertina", "Cerca su internet o scegli dalla galleria") { env.openPage(Overlay.Cover) }
@@ -157,7 +169,7 @@ private fun CoverBox(env: AppEnv, t: Track, sizeDp: Int) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PageBar(env: AppEnv, title: String, actions: @Composable () -> Unit = {}) {
+internal fun PageBar(env: AppEnv, title: String, actions: @Composable () -> Unit = {}) {
     TopAppBar(
         title = { Text(title) },
         navigationIcon = {
