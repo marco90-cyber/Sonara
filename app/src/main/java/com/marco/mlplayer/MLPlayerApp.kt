@@ -29,6 +29,14 @@ class MLPlayerApp : Application() {
     lateinit var ytImports: com.marco.mlplayer.yt.YtImports
         private set
 
+    /** Applica il paese dei consigliati (scelto o rilevato da dove ci si trova) a YouTube Music e alle ricerche. */
+    fun applyRegion() {
+        val c = com.marco.mlplayer.data.Region.effective(settings.region, this)
+        com.marco.mlplayer.yt.YtApi.country = c
+        com.marco.mlplayer.yt.Yt.setCountry(c)
+        AppLog.i("Paese", "Consigliati per: $c")
+    }
+
     /** Stato dell'interfaccia: sopravvive alla ricreazione dell'Activity. */
     val env: AppEnv by lazy { AppEnv(this) }
 
@@ -40,6 +48,7 @@ class MLPlayerApp : Application() {
         library = Library(this)
         ytStore = com.marco.mlplayer.yt.YtStore(this)
         ytImports = com.marco.mlplayer.yt.YtImports(this)
+        applyRegion()
         com.marco.mlplayer.yt.YtOverrides.init(this)
         com.marco.mlplayer.yt.AutoFix.enabled = { settings.autoFix }
         com.marco.mlplayer.yt.AutoFix.init(this)

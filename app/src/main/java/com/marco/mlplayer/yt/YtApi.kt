@@ -19,10 +19,13 @@ object YtApi {
 
     private val http = Net.withReadTimeout(readTimeoutSec = 25)
 
+    /** Paese dei consigliati (codice ISO), scelto nelle impostazioni o rilevato da dove ci si trova. */
+    @Volatile var country: String = "IT"
+
     /** POST a un endpoint InnerTube (senza account). */
     fun post(endpoint: String, body: JSONObject, continuation: String? = null): JSONObject {
         body.put("context", JSONObject().put("client", JSONObject()
-            .put("clientName", "WEB_REMIX").put("clientVersion", CLIENT_VERSION).put("hl", "it").put("gl", "IT")))
+            .put("clientName", "WEB_REMIX").put("clientVersion", CLIENT_VERSION).put("hl", "it").put("gl", country)))
         var url = "$ORIGIN/youtubei/v1/$endpoint?key=$KEY&prettyPrint=false"
         if (continuation != null) url += "&ctoken=$continuation&continuation=$continuation&type=next"
         val b = Request.Builder().url(url)

@@ -31,6 +31,10 @@ interface Actions {
     /** Chiede di nuovo la cartella [tree] con il permesso di scrittura (per tag, copertine e testi). */
     fun requestWriteAccess(tree: String)
     fun shareText(text: String, subject: String)
+    /** Chiede il permesso per le notifiche (Android 13 e successivi). */
+    fun requestNotifications()
+    /** Apre le impostazioni di sistema delle notifiche dell'app. */
+    fun openNotificationSettings()
 }
 
 class MenuItem(
@@ -99,6 +103,20 @@ class AppEnv(val app: MLPlayerApp) {
     val preview by lazy { com.marco.mlplayer.audio.DspPreview() }
 
     var actions: Actions? = null
+
+    /** La schermata di benvenuto è aperta (al primo avvio, o dalle impostazioni). */
+    var showWelcome by mutableStateOf(!app.settings.onboardingDone)
+
+    /** Sale a ogni risposta ai permessi o ritorno nell'app, così le schermate ricontrollano lo stato. */
+    var permissionTick by androidx.compose.runtime.mutableIntStateOf(0)
+
+    /** Cambia il paese dei consigliati ("" = automatico) e rifà la Home. */
+    fun setRegion(code: String) {
+        settings.region = code
+        app.applyRegion()
+        resetHomeFeed()
+        message = "Consigliati per: " + com.marco.mlplayer.data.Region.name(com.marco.mlplayer.data.Region.effective(code, app))
+    }
 
     var tab by mutableStateOf(Tab.Home)
     var overlay by mutableStateOf(Overlay.None)

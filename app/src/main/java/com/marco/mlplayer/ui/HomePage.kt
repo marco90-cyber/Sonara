@@ -76,6 +76,18 @@ private object HomeUi {
     var personalLoading = false
 }
 
+/** Dopo un cambio di paese la Home si rifà da capo: i consigliati sono quelli del nuovo paese. */
+fun resetHomeFeed() {
+    HomeUi.shelves = null
+    HomeUi.chips = emptyList()
+    HomeUi.activeChip = null
+    HomeUi.chipShelves = null
+    HomeUi.genres = emptyList()
+    HomeUi.explore = emptyList()
+    HomeUi.exploreAt = 0L
+    HomeUi.personalAt = 0L
+}
+
 /** Home e ricerca nella stessa pagina: barra di ricerca in alto, sotto i suggerimenti di YouTube Music. */
 @Composable
 fun HomePage(env: AppEnv) {

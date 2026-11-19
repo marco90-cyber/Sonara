@@ -115,6 +115,12 @@ class Settings(context: Context) {
     /** Dimensione della cache audio in MB (0 = spenta); vale dal prossimo avvio. */
     var cacheMb by IntPref(sp, "cache_mb", 500)
 
+    // Consigliati e benvenuto
+    /** Paese dei consigliati di YouTube Music (codice ISO); vuoto = automatico, quello in cui ci si trova. */
+    var region by StringPref(sp, "region", "")
+    /** La schermata di benvenuto è già stata vista (o saltata). */
+    var onboardingDone by BoolPref(sp, "onboarding_done", false)
+
     // Correzione brani
     /** Cambia da sola la sorgente dei brani con la durata fuori misura (altro brano, videoclip più lungo). */
     var autoFix by BoolPref(sp, "auto_fix", false)

@@ -71,6 +71,14 @@ object Yt {
 
     private val http = Net.client
 
+    /** Paese per ricerche e flussi (come i consigliati); cambia anche dopo l'avvio. */
+    @Volatile private var country = "IT"
+
+    fun setCountry(code: String) {
+        country = code
+        if (ready) runCatching { NewPipe.setupLocalization(Localization("it", code), ContentCountry(code)) }
+    }
+
     @Volatile private var ready = false
     private val cache = ConcurrentHashMap<String, Resolved>()
 
@@ -78,7 +86,7 @@ object Yt {
         if (ready) return
         synchronized(this) {
             if (ready) return
-            NewPipe.init(OkDownloader(http), Localization("it", "IT"), ContentCountry("IT"))
+            NewPipe.init(OkDownloader(http), Localization("it", country), ContentCountry(country))
             ready = true
         }
     }

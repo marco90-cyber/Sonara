@@ -100,7 +100,23 @@ class MainActivity : ComponentActivity(), Actions {
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             AppLog.i("App", "Permesso notifiche: ${if (granted) "concesso" else "negato"}")
+            (application as MLPlayerApp).env.permissionTick++
         }
+
+    override fun requestNotifications() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching { notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
+        }
+    }
+
+    override fun openNotificationSettings() {
+        runCatching {
+            startActivity(
+                Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName)
+            )
+        }.onFailure { AppLog.w("App", "Impostazioni notifiche non disponibili: ${it.message}") }
+    }
 
     /** Con il volume digitale (DVC) acceso i tasti del volume regolano il volume dell'app. */
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -124,7 +140,8 @@ class MainActivity : ComponentActivity(), Actions {
         val env = app.env
         env.actions = this
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        // al primo avvio il permesso si chiede nella schermata di benvenuto, spiegando a cosa serve
+        if (app.settings.onboardingDone && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -141,6 +158,7 @@ class MainActivity : ComponentActivity(), Actions {
         // uscita USB esclusiva: serve il permesso per il DAC collegato
         val app = application as MLPlayerApp
         if (app.settings.usbExclusive) runCatching { app.engine.outputs.ensureUsbPermission() }
+        app.env.permissionTick++
     }
 
     override fun onDestroy() {

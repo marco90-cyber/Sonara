@@ -167,6 +167,9 @@ fun PlayerApp(env: AppEnv) {
                 env.durationCheck?.let { DurationCheckSheet(env, it) }
                 if (env.showTrackMenu && env.engine.currentTrack != null) TrackMenuSheet(env)
 
+                // benvenuto: al primo avvio, o riaperto dalle Impostazioni
+                if (env.showWelcome) WelcomeScreen(env)
+
                 // messaggi brevi (salvataggi, permessi)
                 val snack = remember { SnackbarHostState() }
                 LaunchedEffect(env.message) {

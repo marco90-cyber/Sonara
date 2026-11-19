@@ -14,7 +14,13 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.marco.mlplayer.data.Region
 import com.marco.mlplayer.AppUpdate
 import com.marco.mlplayer.AppUpdateStatus
 import com.marco.mlplayer.yt.ImportRunner
@@ -77,6 +83,16 @@ fun SettingsHome(env: AppEnv) {
                 "Occupa ${YtCache.usedBytes() / (1024 * 1024)} MB · riascolti e salti indietro senza riscaricare",
                 icon = Icons.Filled.Delete,
             ) { env.feedback.tapScreen(); YtCache.clear(); env.message = "Cache audio svuotata" }
+        }
+        MLGroup("Consigliati") {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            var picker by remember { mutableStateOf(false) }
+            MLNavRow(
+                "Paese dei consigliati",
+                if (s.region.isBlank()) "Automatico: ${Region.name(Region.detect(ctx))}" else Region.name(s.region),
+                icon = Icons.Filled.Public,
+            ) { picker = true }
+            if (picker) CountryPickerSheet(env) { picker = false }
         }
         MLGroup("Correzione brani") {
             MLSwitchRow(
@@ -169,6 +185,9 @@ fun AppearancePage(env: AppEnv, onBack: (() -> Unit)?) {
         MLGroup("Altro") {
             MLSwitchRow("Copertine negli elenchi", null, s.coverInMenu) { s.coverInMenu = it }
             MLSwitchRow("Schermo sempre acceso", "Mentre l'app è aperta", s.keepScreenOn) { s.keepScreenOn = it }
+            MLNavRow("Benvenuto e guida", "Notifiche, cartella, correzione brani, paese e significato dei simboli", icon = Icons.Filled.Info) {
+                env.feedback.tapScreen(); env.showWelcome = true
+            }
         }
     }
 }
