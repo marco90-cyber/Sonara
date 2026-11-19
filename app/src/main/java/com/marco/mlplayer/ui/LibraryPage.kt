@@ -145,7 +145,6 @@ internal fun TrackList(env: AppEnv, items: List<Yt.Item>, showClear: Boolean = f
 }
 
 /** Pagina di una raccolta (playlist, album, artista): indietro, copertina, titolo, pulsanti e lista dei brani. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun CollectionState(
     env: AppEnv,
@@ -187,6 +186,7 @@ private fun BackRow(title: String, onBack: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CollectionView(
     env: AppEnv, title: String, subtitle: String, thumb: String, tracks: List<Yt.Item>, onBack: () -> Unit,
