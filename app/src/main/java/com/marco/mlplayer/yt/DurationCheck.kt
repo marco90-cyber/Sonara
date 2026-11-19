@@ -53,6 +53,29 @@ object DurationMatch {
         return x.isNotEmpty() && x.intersect(tokens(b)).any { it.length > 1 }
     }
 
+    private val UNWANTED = Regex(
+        "\\b(remix|remixed|rmx|bootleg|instrumental|strumentale|cover|covers|karaoke|nightcore|sped up|speed up|slowed|mashup|" +
+            "unofficial|un official|non ufficiale|fan made|fanmade|tribute)\\b"
+    )
+
+    /** Le parole da scartare (remix, bootleg, instrumental, cover, non ufficiale…) che compaiono in [text]. */
+    private fun unwantedIn(text: String): Set<String> {
+        val t = Normalizer.normalize(text.lowercase(Locale.ROOT), Normalizer.Form.NFD).replace(ACCENTS, "").replace(NON_ALNUM, " ")
+        return UNWANTED.findAll(t).map { it.value }.toSet()
+    }
+
+    /**
+     * Il risultato [title] di [artist] è una versione da scartare (remix, bootleg, strumentale, cover, non ufficiale…)?
+     * Una parola non conta se compare in uno dei testi di [context] (il titolo del brano cercato o ciò che l'utente ha scritto):
+     * chi cerca proprio un remix lo trova.
+     */
+    fun isUnwanted(title: String, artist: String, vararg context: String): Boolean {
+        val found = unwantedIn("$title $artist")
+        if (found.isEmpty()) return false
+        val allowed = context.flatMap { unwantedIn(it) }.toSet()
+        return found.any { it !in allowed }
+    }
+
     /** L'artista principale: «Fedez, Marco Masini» → «Fedez». */
     fun mainArtist(artist: String): String = artist.split(SPLIT_ARTISTS).firstOrNull { it.isNotBlank() }?.trim() ?: artist.trim()
 
@@ -71,6 +94,7 @@ object DurationMatch {
         val tol = tolerance(refSec)
         return candidates.asSequence()
             .filter { it.item.videoId != excludeId && it.item.durationSec > 0 }
+            .filter { !isUnwanted(it.item.title, it.item.artist, title) }
             .filter { abs(it.item.durationSec - refSec) <= tol }
             .filter { titleSim(title, it.item.title) >= 0.6 }
             .map { c ->

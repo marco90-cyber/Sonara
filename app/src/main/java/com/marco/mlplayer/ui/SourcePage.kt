@@ -242,17 +242,21 @@ fun SourcePage(env: AppEnv) {
             )
         }
         Spacer(Modifier.size(8.dp))
+        val res = results
         when {
             loading -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             failed -> Text(
                 "Ricerca non riuscita. Controlla la connessione e riprova.",
                 color = cs.error, modifier = Modifier.padding(16.dp),
             )
-            results?.isEmpty() == true -> Text("Nessun risultato: prova a cambiare le parole.", modifier = Modifier.padding(16.dp), color = cs.onSurfaceVariant)
+            res?.isEmpty() == true || (res != null && res.none { !DurationMatch.isUnwanted(it.item.title, it.item.artist, orig.title, query) }) ->
+                Text("Nessun risultato: prova a cambiare le parole.", modifier = Modifier.padding(16.dp), color = cs.onSurfaceVariant)
             else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // remix, bootleg, strumentali, cover e non ufficiali non si mostrano (salvo che il brano o la ricerca li chiedano)
+                val clean = results.orEmpty().filter { !DurationMatch.isUnwanted(it.item.title, it.item.artist, orig.title, query) }
                 val shownResults = ref?.let { r ->
-                    results.orEmpty().sortedBy { if (it.item.durationSec > 0) abs(it.item.durationSec - r.seconds) else Long.MAX_VALUE }
-                } ?: results.orEmpty()
+                    clean.sortedBy { if (it.item.durationSec > 0) abs(it.item.durationSec - r.seconds) else Long.MAX_VALUE }
+                } ?: clean
                 items(shownResults, key = { it.item.videoId }) { src ->
                     SourceRow(
                         src = src,

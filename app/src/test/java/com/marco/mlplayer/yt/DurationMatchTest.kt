@@ -78,4 +78,32 @@ class DurationMatchTest {
         val list = listOf(src("same", "Titolo", "Artista", 200))
         assertNull(DurationMatch.best("Titolo", "Artista", 200, list, excludeId = "same"))
     }
+
+    @Test
+    fun unwantedVersionsAreRecognised() {
+        for (t in listOf("Titolo (Remix)", "Titolo - Instrumental", "Titolo [Bootleg]", "Titolo (Cover)", "Titolo (Unofficial)", "Titolo non ufficiale", "Titolo Strumentale", "Titolo (Karaoke Version)")) {
+            assertTrue(t, DurationMatch.isUnwanted(t, "Artista", "Titolo"))
+        }
+        assertTrue(DurationMatch.isUnwanted("Titolo", "Artista Covers", "Titolo"))
+        assertFalse(DurationMatch.isUnwanted("Titolo (Official Audio)", "Artista", "Titolo"))
+        assertFalse(DurationMatch.isUnwanted("Recoverable", "Artista", "Titolo"))
+    }
+
+    @Test
+    fun theWordIsAllowedWhenTheOriginalOrTheSearchHasIt() {
+        assertFalse(DurationMatch.isUnwanted("Titolo (Remix)", "Artista", "Titolo (Remix)"))
+        assertFalse(DurationMatch.isUnwanted("Titolo (Remix)", "Artista", "Titolo", "titolo artista remix"))
+        assertTrue(DurationMatch.isUnwanted("Titolo (Remix)", "Artista", "Titolo", "titolo artista"))
+    }
+
+    @Test
+    fun bestIgnoresRemixesEvenWhenTheDurationIsRight() {
+        val list = listOf(
+            src("rmx", "Titolo (Remix)", "Artista", 200),
+            src("inst", "Titolo (Instrumental)", "Artista", 200),
+            src("ok", "Titolo", "Artista", 203),
+        )
+        assertEquals("ok", DurationMatch.best("Titolo", "Artista", 200, list)!!.source.item.videoId)
+        assertNull(DurationMatch.best("Titolo", "Artista", 200, list.take(2)))
+    }
 }
