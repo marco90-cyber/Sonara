@@ -103,6 +103,9 @@ object YtOverrides {
         return incoming.size
     }
 
+    /** Solo per i test: svuota l'elenco (l'oggetto è condiviso tra un test e l'altro). */
+    internal fun resetForTest() { map = emptyMap() }
+
     private fun save() {
         writer?.write(exportJson()) { AppLog.e(TAG, "Salvataggio non riuscito", it) }
         YtBackup.schedule()

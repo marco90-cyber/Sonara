@@ -3,12 +3,16 @@ package com.marco.mlplayer.yt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 /** «Cambia sorgente»: l'id del brano resta quello originale, cambia solo il video da cui si prende l'audio. */
 class YtOverridesTest {
     private val orig = Yt.Item("orig0001", "Titolo giusto", "Artista", 200, "https://x/o.jpg")
     private val target = Yt.Item("targ0002", "Titolo del video", "Altro canale", 305, "https://x/t.jpg")
+
+    @Before
+    fun clean() = YtOverrides.resetForTest()
 
     private fun json(meta: Boolean) =
         """{"overrides":[{"orig":${orig.toJson()},"target":${target.toJson()},"meta":$meta}]}"""
