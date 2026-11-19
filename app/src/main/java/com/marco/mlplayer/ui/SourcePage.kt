@@ -249,11 +249,11 @@ fun SourcePage(env: AppEnv) {
                 "Ricerca non riuscita. Controlla la connessione e riprova.",
                 color = cs.error, modifier = Modifier.padding(16.dp),
             )
-            res?.isEmpty() == true || (res != null && res.none { !DurationMatch.isUnwanted(it.item.title, it.item.artist, orig.title, query) }) ->
+            res?.isEmpty() == true || (res != null && res.none { !DurationMatch.isUnwanted(it.item.title, it.item.artist, orig.artist, orig.title, query) }) ->
                 Text("Nessun risultato: prova a cambiare le parole.", modifier = Modifier.padding(16.dp), color = cs.onSurfaceVariant)
             else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // remix, bootleg, strumentali, cover e non ufficiali non si mostrano (salvo che il brano o la ricerca li chiedano)
-                val clean = results.orEmpty().filter { !DurationMatch.isUnwanted(it.item.title, it.item.artist, orig.title, query) }
+                // bootleg, cover, mashup, sped up, nightcore, 8D, DJ mix, remix non ufficiali… non si mostrano (salvo che il brano o la ricerca li chiedano)
+                val clean = results.orEmpty().filter { !DurationMatch.isUnwanted(it.item.title, it.item.artist, orig.artist, orig.title, query) }
                 val shownResults = ref?.let { r ->
                     clean.sortedBy { if (it.item.durationSec > 0) abs(it.item.durationSec - r.seconds) else Long.MAX_VALUE }
                 } ?: clean

@@ -81,26 +81,46 @@ class DurationMatchTest {
 
     @Test
     fun unwantedVersionsAreRecognised() {
-        for (t in listOf("Titolo (Remix)", "Titolo - Instrumental", "Titolo [Bootleg]", "Titolo (Cover)", "Titolo (Unofficial)", "Titolo non ufficiale", "Titolo Strumentale", "Titolo (Karaoke Version)")) {
-            assertTrue(t, DurationMatch.isUnwanted(t, "Artista", "Titolo"))
+        for (t in listOf(
+            "Titolo [Bootleg]", "Titolo (Cover)", "Titolo (Unofficial)", "Titolo non ufficiale", "Titolo (Tribute)", "Titolo (Fan Made)",
+            "Titolo (Mashup)", "Titolo (Sped Up)", "Titolo (Slowed + Reverb)", "Titolo Nightcore", "Titolo (8D Audio)", "Titolo (DJ Mix)",
+        )) {
+            assertTrue(t, DurationMatch.isUnwanted(t, "Artista", "Artista", "Titolo"))
         }
-        assertTrue(DurationMatch.isUnwanted("Titolo", "Artista Covers", "Titolo"))
-        assertFalse(DurationMatch.isUnwanted("Titolo (Official Audio)", "Artista", "Titolo"))
-        assertFalse(DurationMatch.isUnwanted("Recoverable", "Artista", "Titolo"))
+        assertTrue(DurationMatch.isUnwanted("Titolo", "Artista Covers", "Artista", "Titolo"))
+    }
+
+    @Test
+    fun instrumentalAndKaraokeAreNotExcluded() {
+        assertFalse(DurationMatch.isUnwanted("Titolo (Instrumental)", "Artista", "Artista", "Titolo"))
+        assertFalse(DurationMatch.isUnwanted("Titolo (Karaoke Version)", "Artista", "Artista", "Titolo"))
+        assertFalse(DurationMatch.isUnwanted("Titolo (Official Audio)", "Artista", "Artista", "Titolo"))
+        assertFalse(DurationMatch.isUnwanted("Recoverable", "Artista", "Artista", "Titolo"))
+    }
+
+    @Test
+    fun onlyOfficialRemixesPass() {
+        // un remix pubblicato da un altro canale: scartato
+        assertTrue(DurationMatch.isUnwanted("Titolo (Remix)", "Un DJ qualsiasi", "Artista", "Titolo"))
+        // dall'artista originale o con «official remix» nel titolo: passa
+        assertFalse(DurationMatch.isUnwanted("Titolo (Remix)", "Artista", "Artista", "Titolo"))
+        assertFalse(DurationMatch.isUnwanted("Titolo (Official Remix)", "Un DJ qualsiasi", "Artista", "Titolo"))
+        // un remix «non ufficiale» è scartato in ogni caso
+        assertTrue(DurationMatch.isUnwanted("Titolo (Unofficial Remix)", "Artista", "Artista", "Titolo"))
     }
 
     @Test
     fun theWordIsAllowedWhenTheOriginalOrTheSearchHasIt() {
-        assertFalse(DurationMatch.isUnwanted("Titolo (Remix)", "Artista", "Titolo (Remix)"))
-        assertFalse(DurationMatch.isUnwanted("Titolo (Remix)", "Artista", "Titolo", "titolo artista remix"))
-        assertTrue(DurationMatch.isUnwanted("Titolo (Remix)", "Artista", "Titolo", "titolo artista"))
+        assertFalse(DurationMatch.isUnwanted("Titolo (Cover)", "Artista", "Artista", "Titolo (Cover)"))
+        assertFalse(DurationMatch.isUnwanted("Titolo (Remix)", "Un DJ", "Artista", "Titolo", "titolo artista remix"))
+        assertTrue(DurationMatch.isUnwanted("Titolo (Cover)", "Artista", "Artista", "Titolo", "titolo artista"))
     }
 
     @Test
-    fun bestIgnoresRemixesEvenWhenTheDurationIsRight() {
+    fun bestIgnoresUnwantedVersionsEvenWhenTheDurationIsRight() {
         val list = listOf(
-            src("rmx", "Titolo (Remix)", "Artista", 200),
-            src("inst", "Titolo (Instrumental)", "Artista", 200),
+            src("rmx", "Titolo (Remix)", "Un DJ", 200),
+            src("sped", "Titolo (Sped Up)", "Artista", 200),
             src("ok", "Titolo", "Artista", 203),
         )
         assertEquals("ok", DurationMatch.best("Titolo", "Artista", 200, list)!!.source.item.videoId)
