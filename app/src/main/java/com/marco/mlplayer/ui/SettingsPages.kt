@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -76,6 +77,13 @@ fun SettingsHome(env: AppEnv) {
                 "Occupa ${YtCache.usedBytes() / (1024 * 1024)} MB · riascolti e salti indietro senza riscaricare",
                 icon = Icons.Filled.Delete,
             ) { env.feedback.tapScreen(); YtCache.clear(); env.message = "Cache audio svuotata" }
+        }
+        MLGroup("Correzione brani") {
+            MLSwitchRow(
+                "Correggi i brani da soli",
+                "Se la durata di un brano non torna con quella ufficiale (audio di un'altra canzone, videoclip più lungo) cambia la sorgente con quella giusta. Vale per playlist, Home e consigliati; si annulla dal menu del brano.",
+                s.autoFix, icon = Icons.Filled.AutoFixHigh,
+            ) { s.autoFix = it }
         }
         MLGroup("Download") {
             MLNavRow(

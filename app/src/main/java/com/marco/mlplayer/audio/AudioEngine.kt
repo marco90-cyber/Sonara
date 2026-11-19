@@ -464,6 +464,9 @@ class AudioEngine(
         if (!player.isPlaying) controls.play()
     }
 
+    /** Posizione di riproduzione in millisecondi (da leggere sul thread principale). */
+    val positionMs: Long get() = player.currentPosition
+
     fun togglePlayPause() {
         if (player.mediaItemCount == 0) return
         if (player.isPlaying && !controls.pausing) controls.pause() else {

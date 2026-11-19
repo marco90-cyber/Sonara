@@ -322,6 +322,8 @@ object Yt {
     }
 
     fun toTrack(raw: Item): Track {
+        // con «Correzione brani» attiva ogni brano che entra in coda viene controllato in background
+        AutoFix.consider(raw)
         val i = YtOverrides.apply(raw)
         return trackOf(i)
     }

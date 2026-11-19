@@ -89,10 +89,15 @@ object DurationRef {
     private val NONE = Ref(0, "")
     private val cache = ConcurrentHashMap<String, Ref>()
 
+    /** Esito di una ricerca: [reachable] è falso se nessun servizio ha risposto (niente rete), e allora non vale come «non trovato». */
+    class Lookup(val ref: Ref?, val reachable: Boolean)
+
     /** La durata di riferimento di [title] di [artist]; null se non si trova. Bloccante: fuori dal thread principale. */
-    fun lookup(title: String, artist: String): Ref? {
+    fun lookup(title: String, artist: String): Ref? = lookupFull(title, artist).ref
+
+    fun lookupFull(title: String, artist: String): Lookup {
         val key = DurationMatch.norm(title) + "|" + DurationMatch.norm(artist)
-        cache[key]?.let { return it.takeIf { r -> r !== NONE } }
+        cache[key]?.let { return Lookup(it.takeIf { r -> r !== NONE }, true) }
         val main = DurationMatch.mainArtist(artist)
         var answered = false
         for (url in listOf(
@@ -102,16 +107,16 @@ object DurationRef {
             val j = json(url) ?: continue
             answered = true
             parse(j.optJSONArray("data"), "title", "duration", title, artist, "Deezer") { it.optJSONObject("artist")?.optString("name").orEmpty() }
-                ?.let { cache[key] = it; return it }
+                ?.let { cache[key] = it; return Lookup(it, true) }
         }
         json(Http.url("https://itunes.apple.com/search", "term" to "$title $main", "entity" to "song", "limit" to "8", "country" to "IT"))?.let { j ->
             answered = true
             parse(j.optJSONArray("results"), "trackName", "trackTimeMillis", title, artist, "iTunes") { it.optString("artistName") }
-                ?.let { cache[key] = it; return it }
+                ?.let { cache[key] = it; return Lookup(it, true) }
         }
         // se nessun servizio ha risposto (niente rete) non ricordo il «non trovato»: si potrà riprovare
         if (answered) cache[key] = NONE
-        return null
+        return Lookup(null, answered)
     }
 
     private fun json(url: String): JSONObject? =

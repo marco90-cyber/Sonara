@@ -115,6 +115,10 @@ class Settings(context: Context) {
     /** Dimensione della cache audio in MB (0 = spenta); vale dal prossimo avvio. */
     var cacheMb by IntPref(sp, "cache_mb", 500)
 
+    // Correzione brani
+    /** Cambia da sola la sorgente dei brani con la durata fuori misura (altro brano, videoclip più lungo). */
+    var autoFix by BoolPref(sp, "auto_fix", false)
+
     // Playlist importate
     /** Controlla ogni tanto se le playlist importate sono cambiate sul servizio di origine. */
     var importAutoRefresh by BoolPref(sp, "import_auto_refresh", false)

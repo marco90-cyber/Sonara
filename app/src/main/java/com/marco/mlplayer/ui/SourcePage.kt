@@ -78,6 +78,8 @@ fun applySource(env: AppEnv, orig: Yt.Item, source: Yt.Item, useTargetMeta: Bool
 /** Toglie il cambio di sorgente: torna l'audio, il titolo e la copertina di prima. */
 fun restoreSource(env: AppEnv, videoId: String) {
     val orig = YtOverrides.clear(videoId) ?: return
+    // chi ripristina lo fa apposta: la correzione automatica non lo tocca più
+    com.marco.mlplayer.yt.AutoFix.ignore(videoId)
     refreshQueue(env, orig)
     env.message = "Sorgente originale ripristinata"
 }
