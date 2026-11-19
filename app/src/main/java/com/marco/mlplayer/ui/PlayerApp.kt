@@ -164,6 +164,7 @@ fun PlayerApp(env: AppEnv) {
                 }
 
                 if (env.showQueue) QueueSheet(env)
+                env.durationCheck?.let { DurationCheckSheet(env, it) }
                 if (env.showTrackMenu && env.engine.currentTrack != null) TrackMenuSheet(env)
 
                 // messaggi brevi (salvataggi, permessi)

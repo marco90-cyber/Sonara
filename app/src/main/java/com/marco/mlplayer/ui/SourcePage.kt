@@ -56,20 +56,23 @@ import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.util.Http
 import com.marco.mlplayer.util.Net
 import com.marco.mlplayer.util.mmss
+import com.marco.mlplayer.yt.DurationMatch
+import com.marco.mlplayer.yt.DurationRef
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtOverrides
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 // ---------------------------------------------------------------- azioni (usate anche dal menu del brano)
 
 /** Fa suonare il brano [orig] dal video scelto: aggiorna subito la coda, riparte da capo e sistema la copertina. */
-fun applySource(env: AppEnv, orig: Yt.Item, source: Yt.Item, useTargetMeta: Boolean) {
+fun applySource(env: AppEnv, orig: Yt.Item, source: Yt.Item, useTargetMeta: Boolean, quiet: Boolean = false) {
     YtOverrides.set(orig, source, useTargetMeta)
     refreshQueue(env, YtOverrides[orig.videoId]?.orig ?: orig)
-    env.message = "Sorgente cambiata: vale in tutte le playlist"
+    if (!quiet) env.message = "Sorgente cambiata: vale in tutte le playlist"
 }
 
 /** Toglie il cambio di sorgente: torna l'audio, il titolo e la copertina di prima. */
@@ -94,7 +97,7 @@ private fun refreshQueue(env: AppEnv, base: Yt.Item) {
 // ---------------------------------------------------------------- anteprima
 
 /** Anteprima di un risultato: parte da circa 30 secondi (o dall'inizio nei brani corti) e si ferma toccando di nuovo. */
-private class SourcePreview {
+internal class SourcePreview {
     var playingId by mutableStateOf<String?>(null)
         private set
     var loadingId by mutableStateOf<String?>(null)
@@ -178,6 +181,11 @@ fun SourcePage(env: AppEnv) {
     var useMeta by remember(t.id) { mutableStateOf(false) }
     val preview = remember { SourcePreview() }
     var pausedByPreview by remember { mutableStateOf(false) }
+    // durata di riferimento (Deezer/iTunes): serve a mostrare di quanto ogni risultato si discosta
+    var ref by remember(t.id) { mutableStateOf<DurationRef.Ref?>(null) }
+    LaunchedEffect(t.id) {
+        ref = withContext(Dispatchers.IO) { runCatching { DurationRef.lookup(orig.title, orig.artist) }.getOrNull() }
+    }
 
     fun search() {
         val q = query.trim()
@@ -213,6 +221,12 @@ fun SourcePage(env: AppEnv) {
                 else "Scegli il video giusto: sostituisce l'audio di questo brano in tutte le playlist.",
                 style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant,
             )
+            ref?.let { r ->
+                Text(
+                    "Durata di riferimento: ${mmss(r.seconds * 1000)} (${r.source}). I risultati più vicini sono in alto.",
+                    style = MaterialTheme.typography.bodySmall, color = cs.primary, modifier = Modifier.padding(top = 4.dp),
+                )
+            }
             Spacer(Modifier.size(12.dp))
             OutlinedTextField(
                 value = query,
@@ -234,9 +248,13 @@ fun SourcePage(env: AppEnv) {
             )
             results?.isEmpty() == true -> Text("Nessun risultato: prova a cambiare le parole.", modifier = Modifier.padding(16.dp), color = cs.onSurfaceVariant)
             else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(results.orEmpty(), key = { it.item.videoId }) { src ->
+                val shownResults = ref?.let { r ->
+                    results.orEmpty().sortedBy { if (it.item.durationSec > 0) abs(it.item.durationSec - r.seconds) else Long.MAX_VALUE }
+                } ?: results.orEmpty()
+                items(shownResults, key = { it.item.videoId }) { src ->
                     SourceRow(
                         src = src,
+                        refSec = ref?.seconds,
                         inUse = src.item.videoId == activeId,
                         previewing = preview.playingId == src.item.videoId,
                         previewLoading = preview.loadingId == src.item.videoId,
@@ -304,6 +322,7 @@ private fun MetaChoice(selected: Boolean, label: String, onClick: () -> Unit) {
 @Composable
 private fun SourceRow(
     src: Yt.Source,
+    refSec: Long?,
     inUse: Boolean,
     previewing: Boolean,
     previewLoading: Boolean,
@@ -335,6 +354,14 @@ private fun SourceRow(
                 )
                 if (item.durationSec > 0) {
                     Text(" · " + mmss(item.durationSec * 1000), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+                    if (refSec != null && refSec > 0) {
+                        val d = item.durationSec - refSec
+                        Text(
+                            " (" + (if (d >= 0) "+" else "-") + mmss(abs(d) * 1000) + ")",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (abs(d) <= DurationMatch.tolerance(refSec)) cs.primary else cs.error,
+                        )
+                    }
                 }
                 if (inUse) Text(" · In uso", style = MaterialTheme.typography.labelSmall, color = cs.primary)
             }

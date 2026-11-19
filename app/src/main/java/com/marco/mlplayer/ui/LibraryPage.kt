@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
@@ -126,6 +129,9 @@ internal fun TrackList(env: AppEnv, items: List<Yt.Item>, showClear: Boolean = f
         FilledTonalButton(onClick = {
             env.engine.playQueue(items.map { Yt.toTrack(it) }.shuffled(), 0); env.openNowPlaying()
         }) { Icon(Icons.Filled.Shuffle, null); Text("Casuale") }
+        FilledTonalIconButton(onClick = { env.durationCheck = items }) {
+            Icon(Icons.Filled.Timer, contentDescription = "Controlla durate")
+        }
         if (showClear) OutlinedButton(onClick = { env.app.ytStore.clearHistory() }) { Text("Svuota") }
     }
     LazyColumn(Modifier.fillMaxSize()) {
@@ -139,6 +145,7 @@ internal fun TrackList(env: AppEnv, items: List<Yt.Item>, showClear: Boolean = f
 }
 
 /** Pagina di una raccolta (playlist, album, artista): indietro, copertina, titolo, pulsanti e lista dei brani. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun CollectionState(
     env: AppEnv,
@@ -216,7 +223,12 @@ private fun CollectionView(
                 if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant,
                     textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(info, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
-                Row(Modifier.padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // con il pulsante in più i tasti possono non starci in una riga: vanno a capo
+                FlowRow(
+                    Modifier.padding(vertical = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Button(onClick = { env.playFrom(tracks.map { Yt.toTrack(it) }, 0) }) {
                         Icon(Icons.Filled.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Riproduci")
                     }
@@ -237,6 +249,9 @@ private fun CollectionView(
                             tint = if (busy || all) cs.primary else cs.onSurface,
                         )
                     }
+                }
+                FilledTonalIconButton(onClick = { env.durationCheck = tracks }) {
+                    Icon(Icons.Filled.Timer, contentDescription = "Controlla durate")
                 }
                 if (onRefresh != null) {
                     FilledTonalIconButton(onClick = onRefresh) {

@@ -107,6 +107,9 @@ class AppEnv(val app: MLPlayerApp) {
     /** Coda di riproduzione aperta (foglio dal basso nel lettore). */
     var showQueue by mutableStateOf(false)
 
+    /** Brani di cui si sta controllando la durata («Controlla durate»); null = foglio chiuso. */
+    var durationCheck by mutableStateOf<List<com.marco.mlplayer.yt.Yt.Item>?>(null)
+
     /** Menu ⋮ del brano (Testo, Copertina, Modifica tag). */
     var showTrackMenu by mutableStateOf(false)
 
