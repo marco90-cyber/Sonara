@@ -155,6 +155,9 @@ class Settings(context: Context) {
     // Analizzatore
     var meterRef by IntPref(sp, "meter_ref", -12)
 
+    /** Controlla se c'è una versione nuova ogni volta che si apre l'app. */
+    var updateCheckOnStart by BoolPref(sp, "update_check_on_start", true)
+
     // Debug
     var verboseLog by BoolPref(sp, "verbose_log", false)
 
