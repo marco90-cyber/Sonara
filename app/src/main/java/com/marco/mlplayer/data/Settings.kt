@@ -197,6 +197,9 @@ class Settings(context: Context) {
     var infoPath by BoolPref(sp, "info_path", false)
     var infoMore by BoolPref(sp, "info_more", false)
 
+    /** Scrive subito le preferenze su disco (invece che in differita). */
+    fun flush() { sp.edit().commit() }
+
     /** Riporta le preferenze ai valori di partenza. Restano cartelle, benvenuto, paese e stato del lettore (volume, mescola, ripeti), l'equalizzatore e i suoi preset. */
     fun resetPreferences() {
         val keep = setOf("download_dir", "folders", "onboarding_done", "region", "volume", "shuffle", "repeat")

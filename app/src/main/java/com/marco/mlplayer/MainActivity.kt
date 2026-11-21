@@ -186,6 +186,23 @@ class MainActivity : ComponentActivity(), Actions {
 
     // ---- Actions
 
+    override fun restartApp() {
+        val app = application as MLPlayerApp
+        // prima si scrive tutto su disco (fuori dal thread principale), poi si riparte
+        Thread {
+            runCatching { app.settings.flush() }
+            runCatching { com.marco.mlplayer.util.AsyncFileWriter.flushAll() }
+            runCatching { YtBackup.flush() }
+            runOnUiThread {
+                val launch = packageManager.getLaunchIntentForPackage(packageName)
+                    ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                if (launch != null) startActivity(launch)
+                finishAffinity()
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }
+        }.start()
+    }
+
     override fun pickFolder() {
         try {
             folderPicker.launch(null)

@@ -14,7 +14,6 @@ import androidx.compose.runtime.setValue
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.ImportRunner
 import com.marco.mlplayer.yt.ImportScheduler
-import com.marco.mlplayer.yt.YtBackup
 import com.marco.mlplayer.yt.YtDownloads
 import com.marco.mlplayer.yt.YtOverrides
 import com.marco.mltheme.MLGroup
@@ -64,11 +63,14 @@ private fun resetSettings(env: AppEnv) {
     ImportScheduler.apply(env.app)
 }
 
-/** Esegue l'azione; restituisce il messaggio da mostrare. */
-private fun runReset(env: AppEnv, kind: ResetKind): String {
+/** Esegue l'azione; restituisce il messaggio da mostrare, o null se non si può fare ora. */
+private fun runReset(env: AppEnv, kind: ResetKind): String? {
     val dataKind = kind != ResetKind.Settings
     // lavori in corso rimetterebbero a posto quello che si sta cancellando
-    if (dataKind && (YtDownloads.active || ImportRunner.active)) return "Ci sono download o importazioni in corso: fermali prima"
+    if (dataKind && (YtDownloads.active || ImportRunner.active)) {
+        env.message = "Ci sono download o importazioni in corso: fermali prima"
+        return null
+    }
     val app = env.app
     when (kind) {
         ResetKind.Settings -> resetSettings(env)
@@ -85,8 +87,6 @@ private fun runReset(env: AppEnv, kind: ResetKind): String {
         }
     }
     AppLog.i("Ripristino", kind.done)
-    // i file di riserva nella cartella dei download si riscrivono subito (vuoti), così non tornano indietro
-    if (dataKind) YtBackup.writeNow()
     return kind.done
 }
 
@@ -117,9 +117,13 @@ fun ResetPage(env: AppEnv, onBack: (() -> Unit)?) {
         AlertDialog(
             onDismissRequest = { ask = null },
             title = { Text(if (k == ResetKind.Settings || k == ResetKind.All) "${k.title}?" else "Cancellare «${k.title}»?") },
-            text = { Text(k.warning + "\n\nNon si può annullare.") },
+            text = { Text(k.warning + "\n\nNon si può annullare. L'app si riavvia subito.") },
             confirmButton = {
-                TextButton(onClick = { ask = null; env.message = runReset(env, k) }) { Text(if (k == ResetKind.Settings) "Reimposta" else "Cancella") }
+                TextButton(onClick = {
+                    ask = null
+                    // ogni cancellazione ha effetto solo dopo un riavvio: l'app si riavvia da sola, dopo aver salvato tutto
+                    runReset(env, k)?.let { done -> env.message = "$done · riavvio dell'app…"; env.actions?.restartApp() }
+                }) { Text(if (k == ResetKind.Settings) "Reimposta" else "Cancella") }
             },
             dismissButton = { TextButton(onClick = { ask = null }) { Text("Annulla") } },
         )

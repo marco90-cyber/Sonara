@@ -44,11 +44,11 @@ object YtBackup {
         }
     }
 
-    /** Riscrive subito i file di riserva (dopo un ripristino, senza aspettare i 3 secondi). */
-    fun writeNow() {
+    /** Scrive subito i file di riserva e aspetta che finisca (max 8 s): serve prima di riavviare l'app. */
+    fun flush() {
         if (!::app.isInitialized || app.settings.downloadDir.isBlank()) return
         synchronized(this) { pending?.cancel(false); pending = null }
-        io.execute { write() }
+        runCatching { io.submit { write() }.get(8, TimeUnit.SECONDS) }
     }
 
     private fun writeFile(root: DocumentFile, name: String, text: String) {

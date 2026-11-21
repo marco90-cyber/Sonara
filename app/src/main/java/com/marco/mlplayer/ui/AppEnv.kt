@@ -25,6 +25,8 @@ enum class Tab(val label: String) {
 /** Azioni che richiedono l'Activity (selettore cartelle, browser, condivisione). */
 interface Actions {
     fun pickFolder()
+    /** Salva tutto e riavvia l'app (dopo un ripristino). */
+    fun restartApp()
     fun pickDownloadFolder()
     fun openUrl(url: String)
     fun shareLog()
