@@ -49,7 +49,7 @@ object Featured {
             plain(Region.name(country)),
             plain(java.util.Locale.Builder().setRegion(country).build().getDisplayCountry(java.util.Locale.ENGLISH)),
         ).filter { it.isNotBlank() }
-        val deezerTop = PlaylistImport.searchDeezer("Top $name")
+        val deezerTop = PlaylistImport.searchDeezer("Top ${Region.name(country)}")
             .filter { e -> plain(e.title).startsWith("top") && names.any { plain(e.title).contains(it) } }
             .take(2)
         val charts = PlaylistImport.deezerCharts(6).filter { c -> deezerTop.none { it.browseId == c.browseId } }
