@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.yt.Featured
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtFeed
@@ -67,6 +68,7 @@ private object HomeUi {
     var activeChip by mutableStateOf<YtApi.Chip?>(null)
     var chipShelves by mutableStateOf<List<YtApi.Shelf>?>(null)
     var genres by mutableStateOf<List<Yt.Entry>>(emptyList())
+    var featured by mutableStateOf<List<Yt.Entry>>(emptyList())
     var explore by mutableStateOf<List<YtApi.Shelf>>(emptyList())
     var exploreAt = 0L
     var personalAt = 0L
@@ -162,6 +164,12 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             }
         }
     }
+    // classifiche di Spotify e Deezer del paese scelto (in cache per 6 ore)
+    LaunchedEffect(YtApi.country) {
+        val c = YtApi.country
+        withContext(Dispatchers.IO) { Featured.load(c) { part -> HomeUi.featured = part } }
+            .let { HomeUi.featured = it }
+    }
     LaunchedEffect(Unit) {
         loadExplore()
         if (!HomeUi.loading && HomeUi.shelves == null) load()
@@ -239,6 +247,9 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             items(HomeUi.personal, key = { "p:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             if (forgotten.isNotEmpty()) item(key = "forgotten") {
                 ShelfRow("Preferiti da riascoltare", forgotten.map { YtApi.Card(it, null) }, env, open)
+            }
+            if (HomeUi.featured.isNotEmpty()) item(key = "in-evidenza") {
+                ShelfRow("In evidenza", HomeUi.featured.map { YtApi.Card(null, it) }, env, open)
             }
             if (imported.isNotEmpty()) item(key = "imported") {
                 ShelfRow("Importate", imported.map { YtApi.Card(null, it.entry) }, env, open, onLongPress = { removing = it })

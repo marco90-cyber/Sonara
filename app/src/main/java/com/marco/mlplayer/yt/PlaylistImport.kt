@@ -91,8 +91,17 @@ object PlaylistImport {
     /** Playlist pubbliche di Deezer per [query] (la ricerca di Deezer non chiede chiavi). Vuoto se non raggiungibile. */
     fun searchDeezer(query: String): List<Yt.Entry> = runCatching {
         val url = "https://api.deezer.com/search/playlist".toHttpUrl().newBuilder().addQueryParameter("q", query).addQueryParameter("limit", "25").build()
-        val data = getJson(url.toString()).optJSONArray("data") ?: JSONArray()
-        (0 until data.length()).mapNotNull { i ->
+        deezerEntries(getJson(url.toString()).optJSONArray("data"))
+    }.onFailure { AppLog.w(TAG, "Ricerca Deezer non riuscita: ${it.message}") }.getOrDefault(emptyList())
+
+    /** Le playlist più ascoltate su Deezer in questo momento (classifica mondiale delle playlist). Vuoto se non raggiungibile. */
+    fun deezerCharts(limit: Int = 8): List<Yt.Entry> = runCatching {
+        deezerEntries(getJson("https://api.deezer.com/chart/0/playlists?limit=$limit").optJSONArray("data"))
+    }.onFailure { AppLog.w(TAG, "Classifica Deezer non riuscita: ${it.message}") }.getOrDefault(emptyList())
+
+    private fun deezerEntries(arr: JSONArray?): List<Yt.Entry> {
+        val data = arr ?: JSONArray()
+        return (0 until data.length()).mapNotNull { i ->
             val o = data.getJSONObject(i)
             val id = o.optLong("id").takeIf { it > 0 } ?: return@mapNotNull null
             val sub = listOfNotNull(
@@ -102,7 +111,7 @@ object PlaylistImport {
             ).joinToString(" · ")
             Yt.Entry(Yt.Kind.Playlists, Ref(Source.Deezer, id.toString()).browseId, o.optString("title"), sub, o.optString("picture_medium"))
         }
-    }.onFailure { AppLog.w(TAG, "Ricerca Deezer non riuscita: ${it.message}") }.getOrDefault(emptyList())
+    }
 
     // ------------------------------------------------------------------ lettura dei servizi
 
