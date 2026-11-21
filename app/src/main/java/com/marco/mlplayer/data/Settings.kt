@@ -190,7 +190,9 @@ class Settings(context: Context) {
     var updateCheckOnStart by BoolPref(sp, "update_check_on_start", true)
 
     // Info extra nel lettore, sotto il chip della qualità (tutte spente di default)
+    var infoQuality by BoolPref(sp, "info_quality", false)
     var infoBitrate by BoolPref(sp, "info_bitrate", false)
+    var infoChannels by BoolPref(sp, "info_channels", false)
     var infoOutput by BoolPref(sp, "info_output", false)
     var infoLevel by BoolPref(sp, "info_level", false)
     var infoSource by BoolPref(sp, "info_source", false)

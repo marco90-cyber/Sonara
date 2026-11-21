@@ -185,7 +185,9 @@ fun AppearancePage(env: AppEnv, onBack: (() -> Unit)?) {
             }
         }
         MLGroup("Info nel lettore") {
-            MLSwitchRow("Bitrate e canali", "Es. 128 kbps · Stereo", s.infoBitrate) { s.infoBitrate = it }
+            MLSwitchRow("Formato e frequenza", "Es. Opus · 48 kHz", s.infoQuality) { s.infoQuality = it }
+            MLSwitchRow("Bitrate", "Es. 128 kbps", s.infoBitrate) { s.infoBitrate = it }
+            MLSwitchRow("Canali", "Mono, Stereo…", s.infoChannels) { s.infoChannels = it }
             MLSwitchRow("Uscita attiva", "Dove va il suono, con formato e frequenza mandati ad Android", s.infoOutput) { s.infoOutput = it }
             MLSwitchRow("Livello del brano", "ReplayGain e guadagno applicato", s.infoLevel) { s.infoLevel = it }
             MLSwitchRow("Stato dell'audio", "In streaming, scaricato o file locale", s.infoSource) { s.infoSource = it }

@@ -7,6 +7,17 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Equalizer
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -355,21 +366,6 @@ fun NowPlayingPage(env: AppEnv) {
 
             if (env.settings.showVu) VuCard(env)
 
-            // qualità e formato dell'audio in riproduzione
-            val info = e.audioInfo.ifBlank { t?.let { sourceLabel(it) }.orEmpty() }
-            if (info.isNotBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, cs.outlineVariant),
-                ) {
-                    Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.GraphicEq, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
-                        Spacer(Modifier.width(8.dp))
-                        Text(info, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
             PlayerExtraInfo(env, t)
         }
     }
@@ -432,53 +428,67 @@ private fun openArtist(env: AppEnv, artist: String) {
     }
 }
 
-/** Righe di informazioni in più sotto il chip: si scelgono in Impostazioni → Aspetto → Info nel lettore. */
+/** Un'informazione del lettore: chip col bordo, icona e testo. */
+@Composable
+private fun InfoChip(icon: ImageVector, text: String) {
+    val cs = MaterialTheme.colorScheme
+    Surface(shape = RoundedCornerShape(8.dp), color = Color.Transparent, border = BorderStroke(1.dp, cs.outlineVariant)) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, Modifier.size(18.dp), tint = cs.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
+            Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Chip con le informazioni sul brano: si scelgono in Impostazioni → Aspetto → Info nel lettore (tutte spente di default). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerExtraInfo(env: AppEnv, t: Track?) {
     val st = env.settings
-    if (t == null || !(st.infoBitrate || st.infoOutput || st.infoLevel || st.infoSource || st.infoPath || st.infoMore)) return
+    if (t == null || !(st.infoQuality || st.infoBitrate || st.infoChannels || st.infoOutput || st.infoLevel || st.infoSource || st.infoPath || st.infoMore)) return
     val e = env.engine
-    e.audioInfo // letto per ridisegnare quando il DSP cambia formato
+    val quality = e.audioInfo.ifBlank { sourceLabel(t) } // letto anche per ridisegnare quando il DSP cambia formato
     val dsp = e.eqProcessor.info
     val om = e.outputMonitor
     val outName = om.kind.label + if (om.name.isNotBlank()) " · ${om.name}" else ""
     val isYt = t.id.startsWith("yt_")
-    val lines = buildList {
-        if (st.infoBitrate) {
-            val ch = when (dsp.channels) { 0 -> ""; 1 -> "Mono"; 2 -> "Stereo"; else -> "${dsp.channels} canali" }
-            val l = listOfNotNull(t.bitrateKbps.takeIf { it > 0 }?.let { "$it kbps" }, ch.takeIf { it.isNotBlank() }).joinToString(" · ")
-            if (l.isNotBlank()) add(l)
+    val chips = buildList<Pair<ImageVector, String>> {
+        if (st.infoQuality && quality.isNotBlank()) add(Icons.Filled.GraphicEq to quality)
+        if (st.infoBitrate && t.bitrateKbps > 0) add(Icons.Filled.Speed to "${t.bitrateKbps} kbps")
+        if (st.infoChannels) {
+            when (dsp.channels) { 0 -> null; 1 -> "Mono"; 2 -> "Stereo"; else -> "${dsp.channels} canali" }
+                ?.let { add(Icons.Filled.Speaker to it) }
         }
         if (st.infoOutput) {
             val fmt = if (e.trackSampleRate > 0) " · ${e.trackEncoding} · ${khz(e.trackSampleRate)}" else ""
-            add("Uscita: $outName$fmt")
+            add(Icons.Filled.Headphones to "Uscita: $outName$fmt")
         }
         if (st.infoLevel) {
             val rg = dsp.replayGainDb?.let { String.format(java.util.Locale.ITALY, "ReplayGain %+.1f dB", it) } ?: "ReplayGain non applicato"
-            add(if (dsp.inputGainDb != 0f) rg + String.format(java.util.Locale.ITALY, " · guadagno %+.1f dB", dsp.inputGainDb) else rg)
+            add(Icons.Filled.Equalizer to if (dsp.inputGainDb != 0f) rg + String.format(java.util.Locale.ITALY, " · guadagno %+.1f dB", dsp.inputGainDb) else rg)
         }
         if (st.infoSource) {
             add(
                 when {
-                    !isYt -> "File locale"
-                    com.marco.mlplayer.yt.YtDownloads.isDownloaded(t.id.removePrefix("yt_")) -> "Scaricato sul telefono"
-                    else -> "In streaming da YouTube Music"
+                    !isYt -> Icons.Filled.PhoneAndroid to "File locale"
+                    com.marco.mlplayer.yt.YtDownloads.isDownloaded(t.id.removePrefix("yt_")) -> Icons.Filled.DownloadDone to "Scaricato sul telefono"
+                    else -> Icons.Filled.Cloud to "In streaming da YouTube Music"
                 }
             )
         }
         if (st.infoPath) {
             val src = if (isYt) "YouTube Music" else "File"
             val mid = if (dsp.bypass) "senza DSP" else "DSP"
-            add("$src → $mid → ${om.kind.label}")
+            add(Icons.Filled.Timeline to "$src → $mid → ${om.kind.label}")
         }
         if (st.infoMore) {
             val l = listOf(t.album, t.year.takeIf { it > 0 }?.toString().orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
-            if (l.isNotBlank()) add(l)
+            if (l.isNotBlank()) add(Icons.Filled.Album to l)
         }
     }
-    if (lines.isEmpty()) return
-    val cs = MaterialTheme.colorScheme
-    Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        for (l in lines) Text(l, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    if (chips.isEmpty()) return
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((icon, text) in chips) InfoChip(icon, text)
     }
 }
