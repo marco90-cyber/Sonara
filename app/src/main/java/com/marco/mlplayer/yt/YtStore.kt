@@ -100,6 +100,14 @@ class YtStore(context: Context) {
         save()
     }
 
+    /** Cancella preferiti, salvati, cronologia, ricerche, ascolti e «non mi piace». */
+    fun clearAll() {
+        favorites = emptyList(); saved = emptyList(); history = emptyList()
+        searches = emptyList(); plays = emptyMap(); dislikes = emptyList()
+        tasteVersion++
+        save()
+    }
+
     fun clearHistory() {
         history = emptyList()
         plays = emptyMap()

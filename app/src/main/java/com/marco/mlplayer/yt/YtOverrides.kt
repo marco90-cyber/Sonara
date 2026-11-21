@@ -103,6 +103,12 @@ object YtOverrides {
         return incoming.size
     }
 
+    /** Toglie tutte le sorgenti cambiate. */
+    fun clearAll() {
+        map = emptyMap()
+        save()
+    }
+
     /** Solo per i test: svuota l'elenco (l'oggetto è condiviso tra un test e l'altro). */
     internal fun resetForTest() { map = emptyMap() }
 

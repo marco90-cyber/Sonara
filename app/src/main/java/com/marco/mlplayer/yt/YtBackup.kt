@@ -44,6 +44,13 @@ object YtBackup {
         }
     }
 
+    /** Riscrive subito i file di riserva (dopo un ripristino, senza aspettare i 3 secondi). */
+    fun writeNow() {
+        if (!::app.isInitialized || app.settings.downloadDir.isBlank()) return
+        synchronized(this) { pending?.cancel(false); pending = null }
+        io.execute { write() }
+    }
+
     private fun writeFile(root: DocumentFile, name: String, text: String) {
         val f = root.findFile(name) ?: root.createFile("application/octet-stream", name) ?: return
         app.contentResolver.openOutputStream(f.uri, "wt")?.use { it.write(text.toByteArray()) }

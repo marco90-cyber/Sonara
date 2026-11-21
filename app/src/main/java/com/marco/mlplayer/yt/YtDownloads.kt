@@ -234,6 +234,13 @@ object YtDownloads {
         changed()
     }
 
+    /** Dimentica l'elenco dei download (da chiamare sul thread principale, a coda ferma): i file audio restano nella cartella. */
+    fun forgetAll() {
+        entries.clear()
+        groups.clear()
+        save()
+    }
+
     /** Toglie un brano da un gruppo; il file si cancella solo se nessun altro gruppo lo usa. */
     fun remove(videoId: String, groupId: String? = null) {
         val mine = entries.filter { it.item.videoId == videoId && (groupId == null || it.group == groupId) }

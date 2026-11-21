@@ -12,44 +12,75 @@ import org.json.JSONObject
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
+/** Una preferenza che si può riportare al valore di partenza. */
+interface Resettable {
+    val key: String
+    fun reset()
+}
+
+/** Tutte le preferenze create da [Settings], per chiave: serve al ripristino. */
+internal object PrefRegistry {
+    val all = LinkedHashMap<String, Resettable>()
+}
+
 /** Preferenze osservabili da Compose e salvate su disco. */
-class BoolPref(private val sp: SharedPreferences, private val key: String, def: Boolean) :
-    ReadWriteProperty<Any?, Boolean> {
+class BoolPref(private val sp: SharedPreferences, override val key: String, private val def: Boolean) :
+    ReadWriteProperty<Any?, Boolean>, Resettable {
+    init { PrefRegistry.all[key] = this }
     private var value by mutableStateOf(sp.getBoolean(key, def))
     override fun getValue(thisRef: Any?, property: KProperty<*>): Boolean = value
     override fun setValue(thisRef: Any?, property: KProperty<*>, value: Boolean) {
         this.value = value
         sp.edit().putBoolean(key, value).apply()
     }
+    override fun reset() {
+        this.value = def
+        sp.edit().remove(key).apply()
+    }
 }
 
-class IntPref(private val sp: SharedPreferences, private val key: String, def: Int) :
-    ReadWriteProperty<Any?, Int> {
+class IntPref(private val sp: SharedPreferences, override val key: String, private val def: Int) :
+    ReadWriteProperty<Any?, Int>, Resettable {
+    init { PrefRegistry.all[key] = this }
     private var value by mutableStateOf(sp.getInt(key, def))
     override fun getValue(thisRef: Any?, property: KProperty<*>): Int = value
     override fun setValue(thisRef: Any?, property: KProperty<*>, value: Int) {
         this.value = value
         sp.edit().putInt(key, value).apply()
     }
+    override fun reset() {
+        this.value = def
+        sp.edit().remove(key).apply()
+    }
 }
 
-class FloatPref(private val sp: SharedPreferences, private val key: String, def: Float) :
-    ReadWriteProperty<Any?, Float> {
+class FloatPref(private val sp: SharedPreferences, override val key: String, private val def: Float) :
+    ReadWriteProperty<Any?, Float>, Resettable {
+    init { PrefRegistry.all[key] = this }
     private var value by mutableStateOf(sp.getFloat(key, def))
     override fun getValue(thisRef: Any?, property: KProperty<*>): Float = value
     override fun setValue(thisRef: Any?, property: KProperty<*>, value: Float) {
         this.value = value
         sp.edit().putFloat(key, value).apply()
     }
+    override fun reset() {
+        this.value = def
+        sp.edit().remove(key).apply()
+    }
 }
 
-class StringPref(private val sp: SharedPreferences, private val key: String, def: String) :
-    ReadWriteProperty<Any?, String> {
+class StringPref(private val sp: SharedPreferences, override val key: String, private val def: String) :
+    ReadWriteProperty<Any?, String>, Resettable {
+    init { PrefRegistry.all[key] = this }
     private var value by mutableStateOf(sp.getString(key, def) ?: def)
     override fun getValue(thisRef: Any?, property: KProperty<*>): String = value
     override fun setValue(thisRef: Any?, property: KProperty<*>, value: String) {
         this.value = value
         sp.edit().putString(key, value).apply()
+    }
+    override fun reset() {
+        this.value = def
+        sp.edit().remove(key).apply()
     }
 }
 
@@ -165,6 +196,12 @@ class Settings(context: Context) {
     var infoSource by BoolPref(sp, "info_source", false)
     var infoPath by BoolPref(sp, "info_path", false)
     var infoMore by BoolPref(sp, "info_more", false)
+
+    /** Riporta le preferenze ai valori di partenza. Restano cartelle, benvenuto, paese e stato del lettore (volume, mescola, ripeti), l'equalizzatore e i suoi preset. */
+    fun resetPreferences() {
+        val keep = setOf("download_dir", "folders", "onboarding_done", "region", "volume", "shuffle", "repeat")
+        PrefRegistry.all.values.filter { it.key !in keep }.forEach { it.reset() }
+    }
 
     // Debug
     var verboseLog by BoolPref(sp, "verbose_log", false)

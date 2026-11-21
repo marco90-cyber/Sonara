@@ -86,6 +86,7 @@ fun MenuPage(env: AppEnv, nav: Nav) {
             when (val s = e.screen) {
                 SettingsHomeScreen -> SettingsHome(env)
                 AppearanceScreen -> AppearancePage(env, onBack)
+                ResetScreen -> ResetPage(env, onBack)
                 is MenuScreen -> SettingsList(env, e, s, onBack)
             }
         }

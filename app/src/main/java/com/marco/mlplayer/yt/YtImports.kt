@@ -36,6 +36,13 @@ class YtImports(context: Context) {
             .onFailure { AppLog.e("Importa", "Lettura delle playlist importate non riuscita", it) }
     }
 
+    /** Dimentica tutte le playlist importate. */
+    @Synchronized
+    fun clearAll() {
+        all = emptyList()
+        save()
+    }
+
     /** Ultimo controllo di una qualunque playlist (ms), 0 se mai. */
     val lastCheck: Long get() = all.maxOfOrNull { it.checkedAt } ?: 0
 

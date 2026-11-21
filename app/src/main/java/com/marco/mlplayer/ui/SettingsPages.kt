@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Palette
@@ -148,6 +149,7 @@ fun SettingsHome(env: AppEnv) {
                 if (AppUpdateStatus.release != null) "Nuova versione disponibile" else "Cerca la nuova versione su GitHub",
                 icon = Icons.Filled.SystemUpdate
             ) { go(env.updateScreen()); AppUpdate.check(env.app) }
+            MLNavRow("Dati e ripristino", "Reimposta le impostazioni o cancella i dati salvati", icon = Icons.Filled.RestartAlt) { go(ResetScreen) }
             MLNavRow("Debug", "Log e informazioni tecniche", icon = Icons.Filled.BugReport) { go(env.debugScreen()) }
             MLNavRow("Informazioni", "Versione, licenze, componenti", icon = Icons.Filled.Info) { go(env.aboutScreen()) }
         }
