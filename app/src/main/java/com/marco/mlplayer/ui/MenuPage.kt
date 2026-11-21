@@ -88,6 +88,7 @@ fun MenuPage(env: AppEnv, nav: Nav) {
                 AppearanceScreen -> AppearancePage(env, onBack)
                 ResetScreen -> ResetPage(env, onBack)
                 GenresScreen -> GenresPage(env, onBack)
+                ArtistsScreen -> ArtistsPage(env, onBack)
                 is MenuScreen -> SettingsList(env, e, s, onBack)
             }
         }

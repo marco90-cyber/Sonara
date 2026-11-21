@@ -49,6 +49,7 @@ import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.Featured
 import com.marco.mlplayer.yt.FavGenres
+import com.marco.mlplayer.yt.FavArtists
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtFeed
@@ -72,6 +73,8 @@ private object HomeUi {
     var featured by mutableStateOf<List<Yt.Entry>>(emptyList())
     /** Scaffali dei generi preferiti (scelti in Benvenuto/Impostazioni). */
     var genreShelves by mutableStateOf<List<YtApi.Shelf>>(emptyList())
+    var artistShelves by mutableStateOf<List<YtApi.Shelf>>(emptyList())
+    var artistKey = ""
     var genreKey = ""
     var genreAt = 0L
     var explore by mutableStateOf<List<YtApi.Shelf>>(emptyList())
@@ -92,6 +95,7 @@ fun resetHomeFeed() {
     HomeUi.exploreAt = 0L
     HomeUi.personalAt = 0L
     HomeUi.genreKey = ""
+    HomeUi.artistKey = ""
 }
 
 /** Home e ricerca nella stessa pagina: barra di ricerca in alto, sotto i suggerimenti di YouTube Music. */
@@ -168,6 +172,26 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             }
         }
     }
+    fun loadFavArtists() {
+        val mine = FavArtists.parse(env.settings.favArtists)
+        if (mine.isEmpty()) { HomeUi.artistShelves = emptyList(); HomeUi.artistKey = ""; return }
+        val key = mine.joinToString(",") { it.browseId }
+        if (key == HomeUi.artistKey) return
+        HomeUi.artistKey = key
+        HomeUi.artistShelves = listOf(YtApi.Shelf("I tuoi artisti", mine.map { YtApi.Card(null, it) }))
+        env.app.appScope.launch {
+            val sim = withContext(Dispatchers.IO) {
+                val have = mine.map { it.browseId }.toSet()
+                val out = LinkedHashMap<String, Yt.Entry>()
+                for (a in mine.shuffled().take(4)) runCatching { YtApi.similarArtists(a.browseId) }
+                    .onSuccess { l -> l.forEach { if (it.browseId !in have) out.putIfAbsent(it.browseId, it) } }
+                    .onFailure { AppLog.w("HomeFeed", "Simili a «${a.title}» non riusciti: ${it.message}") }
+                out.values.take(20).toList()
+            }
+            if (key == HomeUi.artistKey && sim.isNotEmpty())
+                HomeUi.artistShelves = HomeUi.artistShelves + YtApi.Shelf("Simili ai tuoi artisti", sim.map { YtApi.Card(null, it) })
+        }
+    }
     fun loadExplore() {
         if (System.currentTimeMillis() - HomeUi.exploreAt < 6 * 3600_000L) return
         HomeUi.exploreAt = System.currentTimeMillis()
@@ -203,6 +227,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             .let { HomeUi.featured = it }
     }
     LaunchedEffect(env.settings.favGenres) { loadGenres() }
+    LaunchedEffect(env.settings.favArtists) { loadFavArtists() }
     LaunchedEffect(Unit) {
         loadExplore()
         if (!HomeUi.loading && HomeUi.shelves == null) load()
@@ -278,6 +303,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                 ShelfRow("Ascoltati di recente", recent.map { YtApi.Card(it, null) }, env, open)
             }
             items(HomeUi.personal, key = { "p:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
+            items(HomeUi.artistShelves, key = { "a:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             items(HomeUi.genreShelves, key = { "g:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             if (forgotten.isNotEmpty()) item(key = "forgotten") {
                 ShelfRow("Preferiti da riascoltare", forgotten.map { YtApi.Card(it, null) }, env, open)

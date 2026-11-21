@@ -84,6 +84,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -151,6 +154,14 @@ fun NowPlayingPage(env: AppEnv) {
                 if (t != null && e.queueSize > 0) "Brano ${e.queueIndex + 1} di ${e.queueSize}" else "In riproduzione",
                 style = MaterialTheme.typography.titleMedium, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f)
             )
+            var timerDialog by remember { mutableStateOf(false) }
+            IconButton(onClick = { fb.tapScreen(); timerDialog = true }) {
+                Icon(
+                    Icons.Filled.Bedtime, contentDescription = "Timer di spegnimento",
+                    tint = if (SleepTimer.active) cs.primary else LocalContentColor.current,
+                )
+            }
+            if (timerDialog) SleepTimerDialog(env) { timerDialog = false }
             IconButton(onClick = { fb.tapScreen(); env.overlay = Overlay.Analyzer }) {
                 Icon(Icons.Filled.Timeline, contentDescription = "Analizzatore")
             }
@@ -176,6 +187,14 @@ fun NowPlayingPage(env: AppEnv) {
                             translationX = swipeX
                             rotationZ = f * 6f
                             alpha = 1f - kotlin.math.abs(f) * 0.6f
+                        }
+                        .pointerInput(t?.id) {
+                            // doppio tocco: mi piace (solo brani di YouTube Music)
+                            detectTapGestures(onDoubleTap = {
+                                val yi = t?.let { Yt.itemOf(it) } ?: return@detectTapGestures
+                                fb.tapScreen()
+                                env.message = if (env.app.ytStore.toggleFavorite(yi)) "Aggiunto ai preferiti" else "Tolto dai preferiti"
+                            })
                         }
                         .pointerInput(Unit) {
                             detectHorizontalDragGestures(

@@ -63,6 +63,9 @@ class MenuScreen(
 /** Impostazioni › Aspetto: tema, colori, VU meter. */
 object AppearanceScreen : Screen()
 
+/** Impostazioni › Artisti preferiti. */
+object ArtistsScreen : Screen()
+
 /** Impostazioni › Generi preferiti. */
 object GenresScreen : Screen()
 

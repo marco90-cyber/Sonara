@@ -47,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -195,6 +196,9 @@ private fun CollectionView(
     val cs = MaterialTheme.colorScheme
     val cover = thumb.ifBlank { tracks.firstOrNull()?.cover.orEmpty() }
     val totalSec = tracks.sumOf { it.durationSec }
+    // pagina artista: in cima i brani più popolari, il resto a richiesta
+    var allSongs by androidx.compose.runtime.remember(title) { androidx.compose.runtime.mutableStateOf(false) }
+    val shownTracks = if (circle && !allSongs) tracks.take(5) else tracks
     val info = buildString {
         append("${tracks.size} brani")
         if (totalSec > 0) {
@@ -258,7 +262,14 @@ private fun CollectionView(
                         Icon(Icons.Filled.Refresh, contentDescription = "Aggiorna dalla playlist originale")
                     }
                 }
-                if (bookmark != null) {
+                if (bookmark != null && circle) {
+                    val following = env.app.ytStore.isSaved(bookmark.browseId)
+                    if (following) FilledTonalButton(onClick = { env.app.ytStore.toggleSaved(bookmark); env.message = "Non segui più ${bookmark.title}" }) {
+                        Icon(Icons.Filled.Bookmark, null); Spacer(Modifier.width(6.dp)); Text("Segui già")
+                    } else OutlinedButton(onClick = { env.app.ytStore.toggleSaved(bookmark); env.message = "Segui ${bookmark.title}" }) {
+                        Icon(Icons.Filled.BookmarkBorder, null); Spacer(Modifier.width(6.dp)); Text("Segui")
+                    }
+                } else if (bookmark != null) {
                     val saved = env.app.ytStore.isSaved(bookmark.browseId)
                     FilledTonalIconButton(onClick = {
                         val now = env.app.ytStore.toggleSaved(bookmark)
@@ -274,12 +285,20 @@ private fun CollectionView(
                 }
             }
         }
-        itemsIndexed(tracks, key = { i, it -> "${i}_${it.videoId}" }) { index, item ->
+        if (circle && tracks.isNotEmpty()) item(key = "popular-title") {
+            Text("Brani popolari", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
+        }
+        itemsIndexed(shownTracks, key = { i, it -> "${i}_${it.videoId}" }) { index, item ->
             Box(Modifier.padding(horizontal = 16.dp)) {
                 YtRow(env, item) {
                     env.feedback.tapScreen()
                     env.playFrom(tracks.map { Yt.toTrack(it) }, index)
                 }
+            }
+        }
+        if (circle && tracks.size > 5) item(key = "popular-more") {
+            TextButton(onClick = { allSongs = !allSongs }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                Text(if (allSongs) "Mostra meno" else "Mostra tutti i ${tracks.size} brani")
             }
         }
         // album, singoli e altro dell'artista

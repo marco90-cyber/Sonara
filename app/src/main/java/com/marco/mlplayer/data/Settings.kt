@@ -151,6 +151,8 @@ class Settings(context: Context) {
     var region by StringPref(sp, "region", "")
     /** Generi preferiti (id separati da virgola): aiutano la Home personalizzata. */
     var favGenres by StringPref(sp, "fav_genres", "")
+    /** Artisti preferiti (elenco JSON): la Home li mette in primo piano. */
+    var favArtists by StringPref(sp, "fav_artists", "")
     /** La schermata di benvenuto è già stata vista (o saltata). */
     var onboardingDone by BoolPref(sp, "onboarding_done", false)
 

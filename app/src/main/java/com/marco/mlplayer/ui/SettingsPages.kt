@@ -3,6 +3,7 @@ package com.marco.mlplayer.ui
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Equalizer
@@ -101,6 +102,12 @@ fun SettingsHome(env: AppEnv) {
                 if (nGenres == 0) "Scegli i generi per una Home più adatta a te" else "$nGenres scelti",
                 icon = Icons.Filled.Category,
             ) { go(GenresScreen) }
+            val nArtists = com.marco.mlplayer.yt.FavArtists.parse(s.favArtists).size
+            MLNavRow(
+                "Artisti preferiti",
+                if (nArtists == 0) "Scegli gli artisti che ami" else "$nArtists scelti",
+                icon = Icons.Filled.Person,
+            ) { go(ArtistsScreen) }
         }
         MLGroup("Correzione brani") {
             MLSwitchRow(

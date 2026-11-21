@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -62,7 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import com.marco.mlplayer.data.Region
 
-private const val PAGES = 7
+private const val PAGES = 8
 
 /**
  * Benvenuto: poche pagine per sistemare le cose importanti (notifiche, cartella dei download, correzione dei brani,
@@ -92,6 +93,7 @@ fun WelcomeScreen(env: AppEnv) {
                         3 -> AutoFixPage(env)
                         4 -> CountryPage(env)
                         5 -> GenresWelcomePage(env)
+                        6 -> ArtistsWelcomePage(env)
                         else -> LegendPage()
                     }
                 }
@@ -256,6 +258,12 @@ private fun GenresWelcomePage(env: AppEnv) = WelcomePage(
     Icons.Filled.Category, "I tuoi generi preferiti",
     "Scegli i generi che ti piacciono: la Home ti propone musica più adatta fin da subito. Puoi saltare e cambiarli dopo dalle Impostazioni.",
 ) { GenreChips(env) }
+
+@Composable
+private fun ArtistsWelcomePage(env: AppEnv) = WelcomePage(
+    Icons.Filled.Person, "I tuoi artisti preferiti",
+    "Tocca gli artisti che ami (quelli proposti seguono i generi scelti) o cercane altri. Non è obbligatorio: vai avanti quando vuoi.",
+) { ArtistPicker(env) }
 
 private class Sym(val icon: ImageVector, val title: String, val text: String)
 
