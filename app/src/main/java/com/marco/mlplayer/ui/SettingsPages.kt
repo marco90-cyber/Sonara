@@ -30,7 +30,6 @@ import com.marco.mlplayer.yt.ImportRunner
 import com.marco.mlplayer.yt.YtCache
 import com.marco.mlplayer.yt.ImportScheduler
 import com.marco.mltheme.MLChoiceRow
-import com.marco.mltheme.MLDependent
 import com.marco.mltheme.MLGroup
 import com.marco.mltheme.MLNavRow
 import com.marco.mltheme.MLSettingsScaffold
@@ -64,7 +63,7 @@ fun SettingsHome(env: AppEnv) {
                 s.hapticScreen = it
                 env.feedback.tapScreen()
             }
-            MLDependent(s.hapticScreen) {
+            Dependent(s.hapticScreen) {
                 MLChoiceRow(
                     "Intensità",
                     listOf("0" to "Leggera", "1" to "Media", "2" to "Forte"),
@@ -129,7 +128,7 @@ fun SettingsHome(env: AppEnv) {
                 "Aggiorna da sole", "Controlla se le playlist di Spotify, Deezer e YouTube sono cambiate, anche con l'app chiusa",
                 s.importAutoRefresh, icon = Icons.Filled.Sync,
             ) { s.importAutoRefresh = it; ImportScheduler.apply(env.app) }
-            MLDependent(s.importAutoRefresh) {
+            Dependent(s.importAutoRefresh) {
                 MLChoiceRow(
                     "Ogni quanto",
                     listOf("6" to "6 ore", "12" to "12 ore", "24" to "1 giorno", "48" to "2 giorni", "168" to "1 settimana"),
@@ -186,7 +185,7 @@ fun AppearancePage(env: AppEnv, onBack: (() -> Unit)?) {
         MLGroup("VU meter") {
             MLSwitchRow("Volume nel lettore", "Il cursore del volume sotto i comandi", s.showVolume) { s.showVolume = it }
             MLSwitchRow("VU meter nel lettore", "Livello dei canali sinistro e destro sotto i comandi", s.showVu) { s.showVu = it }
-            MLDependent(s.showVu) {
+            Dependent(s.showVu) {
                 MLChoiceRow(
                     "Riferimento",
                     VU_REFS.map { it.toString() to vuRefLabel(it) },
