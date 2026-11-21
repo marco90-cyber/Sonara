@@ -30,7 +30,9 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NorthWest
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -48,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -72,6 +75,7 @@ import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtDownloads
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -85,6 +89,8 @@ object YtUi {
     var entries by mutableStateOf<Map<Yt.Kind, List<Yt.Entry>>>(emptyMap())
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+    /** Completamenti proposti mentre si scrive. */
+    var suggestions by mutableStateOf<List<String>>(emptyList())
 
     /** Pagine aperte una dentro l'altra (artista -> album ...): l'ultima è quella visibile. */
     val trail = mutableStateListOf<Yt.Entry>()
@@ -97,7 +103,7 @@ object YtUi {
     fun back() { if (trail.isNotEmpty()) trail.removeAt(trail.lastIndex) }
 
     fun reset() {
-        query = ""; searched = ""; songs = null; entries = emptyMap(); error = null; loading = false; trail.clear()
+        query = ""; searched = ""; suggestions = emptyList(); songs = null; entries = emptyMap(); error = null; loading = false; trail.clear()
     }
 }
 
@@ -314,7 +320,29 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
         val open = YtUi.open
         val songs = YtUi.songs
         val ents = YtUi.entries[YtUi.kind]
+        val typed = YtUi.query.trim()
+        // si scrive qualcosa di diverso dall'ultima ricerca (e non è un link): mostro i suggerimenti al posto dei risultati
+        val suggesting = open == null && typed.isNotEmpty() && typed != YtUi.searched && !PlaylistImport.maybeLink(typed)
+        // dopo una breve pausa nella digitazione chiedo i completamenti; una risposta superata da altro testo si scarta
+        LaunchedEffect(typed, suggesting) {
+            if (!suggesting) { YtUi.suggestions = emptyList(); return@LaunchedEffect }
+            delay(200)
+            val r = withContext(Dispatchers.IO) { Yt.suggest(typed) }
+            YtUi.suggestions = r
+        }
         when {
+            suggesting -> {
+                val history = env.app.ytStore.searches.filter { it.contains(typed, ignoreCase = true) && !it.equals(typed, true) }.take(3)
+                val online = YtUi.suggestions.filter { s -> history.none { it.equals(s, true) } }
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(history, key = { "h:$it" }) { s ->
+                        SuggestionRow(s, Icons.Filled.History, onPick = { YtUi.query = s }) { YtUi.query = s; run() }
+                    }
+                    items(online.take(10), key = { "s:$it" }) { s ->
+                        SuggestionRow(s, Icons.Filled.Search, onPick = { YtUi.query = s }) { YtUi.query = s; run() }
+                    }
+                }
+            }
             open != null -> {
                 val d = YtUi.details[open.browseId]
                 CollectionState(
@@ -347,6 +375,21 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
                 Text(YtUi.error ?: "Nessun risultato", color = cs.onSurfaceVariant)
             }
         }
+    }
+}
+
+/** Riga di un suggerimento: tocca per cercarlo, la freccia lo copia nel campo per completarlo a mano. */
+@Composable
+private fun SuggestionRow(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onPick: () -> Unit, onSearch: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onSearch).padding(start = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(16.dp))
+        Text(text, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        IconButton(onClick = onPick) { Icon(Icons.Filled.NorthWest, contentDescription = "Usa nel campo di ricerca", tint = cs.onSurfaceVariant) }
     }
 }
 

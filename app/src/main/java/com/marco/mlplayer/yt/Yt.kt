@@ -133,6 +133,19 @@ object Yt {
         return last
     }
 
+    /** Suggerimenti di completamento mentre si scrive (gli stessi di YouTube). Vuota se non riesce. Da chiamare fuori dal thread principale. */
+    fun suggest(query: String): List<String> {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+        return try {
+            init()
+            ServiceList.YouTube.suggestionExtractor.suggestionList(q).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Suggerimenti non riusciti: ${e.javaClass.simpleName}")
+            emptyList()
+        }
+    }
+
     /** Un risultato per «Cambia sorgente»: il brano e se è un video (clip, live) invece di una traccia audio. */
     data class Source(val item: Item, val isVideo: Boolean)
 

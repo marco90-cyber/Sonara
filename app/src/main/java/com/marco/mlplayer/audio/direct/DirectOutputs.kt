@@ -41,6 +41,12 @@ class DirectOutputs(context: Context, private val settings: Settings) {
     val directWanted: Boolean get() = settings.directOutput
     val bitPerfect: Boolean get() = settings.bitPerfect
 
+    /** Uscita diretta sulle uscite del telefono (AudioTrack DIRECT o AAudio esclusiva); vale dal prossimo brano. */
+    fun setDirectOutput(on: Boolean) {
+        settings.directOutput = on
+        AppLog.i("Uscita", "Uscita diretta ${if (on) "attivata" else "disattivata"} (vale dal prossimo brano)")
+    }
+
     /** Primo DAC USB Audio Class collegato (anche senza permesso). */
     fun usbAudioDevice(): UsbDevice? = runCatching {
         usbManager?.deviceList?.values?.firstOrNull { dev ->

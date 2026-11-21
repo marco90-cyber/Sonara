@@ -240,6 +240,10 @@ fun AppEnv.playbackScreen(): MenuScreen = MenuScreen("Riproduzione") {
             "Uscita adattiva", settings.adaptiveOutput,
             sub = "Bit e kHz si adattano a DAC o casse · dal prossimo brano"
         ) { engine.setAdaptiveOutput(it) },
+        toggleItem(
+            "Uscita diretta", settings.directOutput,
+            sub = "Senza DAC USB: AudioTrack 24 bit alla frequenza del brano su uscita DIRECT, o AAudio esclusiva · il ricampionamento resta a soxr · dal prossimo brano"
+        ) { engine.outputs.setDirectOutput(it) },
         MenuItem("Equalizzatore", chevron = true) { tab = Tab.Eq },
     )
 }
