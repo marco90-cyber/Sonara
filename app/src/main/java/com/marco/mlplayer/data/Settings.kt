@@ -158,6 +158,14 @@ class Settings(context: Context) {
     /** Controlla se c'è una versione nuova ogni volta che si apre l'app. */
     var updateCheckOnStart by BoolPref(sp, "update_check_on_start", true)
 
+    // Info extra nel lettore, sotto il chip della qualità (tutte spente di default)
+    var infoBitrate by BoolPref(sp, "info_bitrate", false)
+    var infoOutput by BoolPref(sp, "info_output", false)
+    var infoLevel by BoolPref(sp, "info_level", false)
+    var infoSource by BoolPref(sp, "info_source", false)
+    var infoPath by BoolPref(sp, "info_path", false)
+    var infoMore by BoolPref(sp, "info_more", false)
+
     // Debug
     var verboseLog by BoolPref(sp, "verbose_log", false)
 

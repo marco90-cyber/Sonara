@@ -182,6 +182,14 @@ fun AppearancePage(env: AppEnv, onBack: (() -> Unit)?) {
                 ) { s.vuSpeed = it.toInt() }
             }
         }
+        MLGroup("Info nel lettore") {
+            MLSwitchRow("Bitrate e canali", "Es. 128 kbps · Stereo", s.infoBitrate) { s.infoBitrate = it }
+            MLSwitchRow("Uscita attiva", "Dove va il suono, con formato e frequenza mandati ad Android", s.infoOutput) { s.infoOutput = it }
+            MLSwitchRow("Livello del brano", "ReplayGain e guadagno applicato", s.infoLevel) { s.infoLevel = it }
+            MLSwitchRow("Stato dell'audio", "In streaming, scaricato o file locale", s.infoSource) { s.infoSource = it }
+            MLSwitchRow("Percorso del segnale", "Una riga: sorgente, DSP e uscita", s.infoPath) { s.infoPath = it }
+            MLSwitchRow("Altro sul brano", "Album e anno", s.infoMore) { s.infoMore = it }
+        }
         MLGroup("Altro") {
             MLSwitchRow("Copertine negli elenchi", null, s.coverInMenu) { s.coverInMenu = it }
             MLSwitchRow("Schermo sempre acceso", "Mentre l'app è aperta", s.keepScreenOn) { s.keepScreenOn = it }

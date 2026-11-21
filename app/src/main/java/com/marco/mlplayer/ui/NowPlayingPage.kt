@@ -372,6 +372,7 @@ fun NowPlayingPage(env: AppEnv) {
                     }
                 }
             }
+            PlayerExtraInfo(env, t)
         }
     }
 }
@@ -430,5 +431,56 @@ private fun openArtist(env: AppEnv, artist: String) {
         YtUi.reset()
         env.tab = Tab.Home
         openYtEntry(env, hit)
+    }
+}
+
+/** Righe di informazioni in più sotto il chip: si scelgono in Impostazioni → Aspetto → Info nel lettore. */
+@Composable
+private fun PlayerExtraInfo(env: AppEnv, t: Track?) {
+    val st = env.settings
+    if (t == null || !(st.infoBitrate || st.infoOutput || st.infoLevel || st.infoSource || st.infoPath || st.infoMore)) return
+    val e = env.engine
+    e.audioInfo // letto per ridisegnare quando il DSP cambia formato
+    val dsp = e.eqProcessor.info
+    val om = e.outputMonitor
+    val outName = om.kind.label + if (om.name.isNotBlank()) " · ${om.name}" else ""
+    val isYt = t.id.startsWith("yt_")
+    val lines = buildList {
+        if (st.infoBitrate) {
+            val ch = when (dsp.channels) { 0 -> ""; 1 -> "Mono"; 2 -> "Stereo"; else -> "${dsp.channels} canali" }
+            val l = listOfNotNull(t.bitrateKbps.takeIf { it > 0 }?.let { "$it kbps" }, ch.takeIf { it.isNotBlank() }).joinToString(" · ")
+            if (l.isNotBlank()) add(l)
+        }
+        if (st.infoOutput) {
+            val fmt = if (e.trackSampleRate > 0) " · ${e.trackEncoding} · ${khz(e.trackSampleRate)}" else ""
+            add("Uscita: $outName$fmt")
+        }
+        if (st.infoLevel) {
+            val rg = dsp.replayGainDb?.let { String.format(java.util.Locale.ITALY, "ReplayGain %+.1f dB", it) } ?: "ReplayGain non applicato"
+            add(if (dsp.inputGainDb != 0f) rg + String.format(java.util.Locale.ITALY, " · guadagno %+.1f dB", dsp.inputGainDb) else rg)
+        }
+        if (st.infoSource) {
+            add(
+                when {
+                    !isYt -> "File locale"
+                    com.marco.mlplayer.yt.YtDownloads.isDownloaded(t.id.removePrefix("yt_")) -> "Scaricato sul telefono"
+                    else -> "In streaming da YouTube Music"
+                }
+            )
+        }
+        if (st.infoPath) {
+            val src = if (isYt) "YouTube Music" else "File"
+            val mid = if (dsp.bypass) "senza DSP" else "DSP"
+            add("$src → $mid → ${om.kind.label}")
+        }
+        if (st.infoMore) {
+            val l = listOf(t.album, t.year.takeIf { it > 0 }?.toString().orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
+            if (l.isNotBlank()) add(l)
+        }
+    }
+    if (lines.isEmpty()) return
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (l in lines) Text(l, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
