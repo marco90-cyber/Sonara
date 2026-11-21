@@ -35,6 +35,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
@@ -228,6 +231,33 @@ fun NowPlayingPage(env: AppEnv) {
                     } else {
                         Icon(Icons.Filled.MusicNote, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(side / 3))
                     }
+                    // Mi piace e non mi piace, in basso a sinistra sulla copertina
+                    val yi = t?.let { Yt.itemOf(it) }
+                    if (yi != null) {
+                        val fav = env.app.ytStore.isFavorite(yi.videoId)
+                        val dis = env.app.ytStore.isDisliked(yi.videoId)
+                        Row(
+                            Modifier.align(Alignment.BottomStart).padding(12.dp).clip(CircleShape)
+                                .background(cs.surfaceContainerHighest.copy(alpha = 0.85f)),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleDislike(yi); if (!dis) env.message = "Non lo proporrò più nei suggerimenti" }) {
+                                Icon(
+                                    Icons.Filled.ThumbDown,
+                                    contentDescription = if (dis) "Annulla non mi piace" else "Non mi piace",
+                                    tint = if (dis) cs.error else cs.onSurface, modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            Box(Modifier.width(1.dp).height(22.dp).background(cs.outline.copy(alpha = 0.6f)))
+                            IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleFavorite(yi) }) {
+                                Icon(
+                                    Icons.Filled.ThumbUp,
+                                    contentDescription = if (fav) "Togli il mi piace" else "Mi piace",
+                                    tint = if (fav) cs.primary else cs.onSurface, modifier = Modifier.size(22.dp),
+                                )
+                            }
+                        }
+                    }
                     // Testo e menu del brano, in basso a destra sulla copertina
                     if (t != null) Row(
                         Modifier.align(Alignment.BottomEnd).padding(12.dp),
@@ -255,35 +285,23 @@ fun NowPlayingPage(env: AppEnv) {
                         modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2500)
                     )
                     val ytItem = t?.let { Yt.itemOf(it) }
-                    Text(
-                        if (t != null) {
-                            // per i brani di YouTube Music l'album è solo «YouTube Music»: non lo mostro
-                            if (ytItem != null) t.artist else listOf(t.artist, t.album).filter { it.isNotBlank() }.joinToString(" — ")
-                        } else "Scegli la musica dalla Libreria",
+                    if (ytItem != null && t != null) {
+                        // più artisti: ognuno si tocca da solo e apre la sua pagina
+                        val names = com.marco.mlplayer.yt.YtTaste.artistNames(ytItem.artist).ifEmpty { listOf(ytItem.artist) }
+                        Row(Modifier.horizontalScroll(rememberScrollState())) {
+                            names.forEachIndexed { i, n ->
+                                Text(
+                                    n, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1,
+                                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { fb.tapScreen(); openArtist(env, n) },
+                                )
+                                if (i < names.lastIndex) Text(", ", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                            }
+                        }
+                    } else Text(
+                        if (t != null) listOf(t.artist, t.album).filter { it.isNotBlank() }.joinToString(" — ") else "Scegli la musica dalla Libreria",
                         style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        // toccando il nome si apre la pagina dell'artista
-                        modifier = if (ytItem != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable { fb.tapScreen(); openArtist(env, ytItem.artist) } else Modifier,
                     )
-                }
-                val yi = t?.let { Yt.itemOf(it) }
-                if (yi != null) {
-                    val fav = env.app.ytStore.isFavorite(yi.videoId)
-                    val dis = env.app.ytStore.isDisliked(yi.videoId)
-                    IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleDislike(yi); if (!dis) env.message = "Non lo proporrò più nei suggerimenti" }) {
-                        Icon(
-                            Icons.Filled.ThumbDown,
-                            contentDescription = if (dis) "Annulla non mi piace" else "Non mi piace",
-                            tint = if (dis) cs.error else cs.onSurfaceVariant, modifier = Modifier.size(26.dp),
-                        )
-                    }
-                    IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleFavorite(yi) }) {
-                        Icon(
-                            Icons.Filled.ThumbUp,
-                            contentDescription = if (fav) "Togli il mi piace" else "Mi piace",
-                            tint = if (fav) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(26.dp),
-                        )
-                    }
                 }
                 if (t != null && e.hiResNow) {
                     Spacer(Modifier.width(8.dp))
@@ -349,7 +367,7 @@ fun NowPlayingPage(env: AppEnv) {
             }
 
             // volume dell'app
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (env.settings.showVolume) Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.AutoMirrored.Filled.VolumeDown, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 Slider(
                     value = gainToPos(e.volume),
