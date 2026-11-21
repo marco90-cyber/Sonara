@@ -37,7 +37,10 @@ object YtTaste {
     /** Nome senza maiuscole, accenti e punteggiatura: per confrontare lo stesso artista scritto in modo diverso. */
     fun norm(s: String): String =
         java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{M}+"), "").replace(Regex("[^a-z0-9]+"), " ").trim()
+            .replace(MARKS, "").replace(NOT_ALNUM, " ").trim()
+
+    private val MARKS = Regex("\\p{M}+")
+    private val NOT_ALNUM = Regex("[^a-z0-9]+")
 
     /** Gli artisti più ascoltati (nome, peso), sommando i pesi dei loro brani. */
     fun topArtists(w: Map<String, Pair<Yt.Item, Int>>, n: Int): List<Pair<String, Int>> {

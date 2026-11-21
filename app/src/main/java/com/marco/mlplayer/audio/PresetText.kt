@@ -19,6 +19,8 @@ import kotlin.math.sqrt
  * di Poweramp; il separatore decimale può essere la virgola.
  */
 object PresetText {
+    private val SPACES = Regex("\\s+")
+
     private val filterRe = Regex(
         """Filter\s*\d*\s*:\s*(ON|OFF)\s+(\w+)\s+Fc\s+([-\d.,]+)\s*(?:Hz)?(?:\s+Gain\s+([-\d.,]+)\s*(?:dB)?)?(?:\s+Q\s+([-\d.,]+))?""",
         RegexOption.IGNORE_CASE
@@ -55,7 +57,7 @@ object PresetText {
                         sb.append("Filter ${k + 1}: ON $ty Fc ${b.optDouble("frequency")} Hz Gain ${b.optDouble("gain")} dB Q $q\n")
                     }
                     val part = parse(sb.toString()) ?: continue
-                    val name = o.optString("name", "").replace(Regex("\\s+"), " ").trim().take(24).ifEmpty { fallbackName }
+                    val name = o.optString("name", "").replace(SPACES, " ").trim().take(24).ifEmpty { fallbackName }
                     out.add(name to part)
                 }
                 out
@@ -77,7 +79,7 @@ object PresetText {
             preampRe.find(line)?.let { m -> num(m.groupValues[1])?.let { preamp = it; found = true } }
             if (line.startsWith("GraphicEQ", ignoreCase = true)) {
                 val pts = line.substringAfter(':').split(';').mapNotNull { seg ->
-                    val p = seg.trim().split(Regex("\\s+"))
+                    val p = seg.trim().split(SPACES)
                     val f = p.getOrNull(0)?.let(::num); val g = p.getOrNull(1)?.let(::num)
                     if (f != null && g != null && f > 0f) f to g else null
                 }
@@ -159,7 +161,7 @@ object PresetText {
                     if (oneChannel > 0) notes.add("$oneChannel filtri di un solo canale applicati a entrambi")
                     if (unknown > 0) notes.add("$unknown filtri di tipo sconosciuto saltati")
                     if (list.size > DspSettings.PEQ_MAX) notes.add("${list.size - DspSettings.PEQ_MAX} filtri oltre il ${DspSettings.PEQ_MAX}° non importati")
-                    val name = o.optString("name", "").replace(Regex("\\s+"), " ").trim().take(40).ifEmpty { fallbackName }
+                    val name = o.optString("name", "").replace(SPACES, " ").trim().take(40).ifEmpty { fallbackName }
                     out.add(Parametric(name, o.optDouble("preamp", 0.0).toFloat().coerceIn(-30f, 0f), list.take(DspSettings.PEQ_MAX), notes))
                 }
                 out

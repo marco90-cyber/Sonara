@@ -19,6 +19,8 @@ import java.util.zip.GZIPInputStream
  * scaricano quando le scegli. Le cuffie salvate dall'utente stanno nelle impostazioni.
  */
 object AutoEqDb {
+    private val SPACES = Regex("\\s+")
+
     /** [bands] null = profilo da scaricare ([path] relativo a results/ nel repository). */
     data class Entry(
         val name: String,
@@ -121,7 +123,7 @@ object AutoEqDb {
     }
 
     fun search(list: List<Entry>, q: String, limit: Int = 200): List<Entry> {
-        val words = q.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val words = q.trim().lowercase().split(SPACES).filter { it.isNotEmpty() }
         if (words.isEmpty()) return list.take(limit)
         return list.asSequence().filter { e ->
             val hay = (e.name + " " + e.source + " " + e.rig).lowercase()
