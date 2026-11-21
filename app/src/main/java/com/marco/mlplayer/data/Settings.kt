@@ -64,7 +64,7 @@ class Settings(context: Context) {
     /** Colori dell'app presi dalla copertina del brano in riproduzione. */
     var coverColors by BoolPref(sp, "cover_colors", true)
     /** VU meter nel lettore. */
-    var showVu by BoolPref(sp, "show_vu", true)
+    var showVu by BoolPref(sp, "show_vu", false)
     /** Lancette dei VU: 0 = morbide (300 ms), 1 = rapide (120 ms) */
     var vuSpeed by IntPref(sp, "vu_speed", 0)
     /** Riferimento dei VU: livello RMS in dBFS che vale 0 VU (-20/-18/-14/-12), 0 = scala in dBFS di picco. */
