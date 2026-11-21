@@ -1,0 +1,7 @@
+41:> Task :app:compileDebugKotlin FAILED
+42:e: file:///home/runner/work/Sonara/Sonara/app/src/main/java/com/marco/mlplayer/ui/ArtistsPage.kt:142:127 Unresolved reference 'fillMaxSize'.
+43:e: file:///home/runner/work/Sonara/Sonara/app/src/main/java/com/marco/mlplayer/ui/ArtistsPage.kt:143:42 Unresolved reference 'fillMaxSize'.
+48:* What went wrong:
+49:Execution failed for task ':app:compileDebugKotlin'.
+59:org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:compileDebugKotlin'.
+253:BUILD FAILED in 31s
