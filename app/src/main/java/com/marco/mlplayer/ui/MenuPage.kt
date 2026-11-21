@@ -87,6 +87,7 @@ fun MenuPage(env: AppEnv, nav: Nav) {
                 SettingsHomeScreen -> SettingsHome(env)
                 AppearanceScreen -> AppearancePage(env, onBack)
                 ResetScreen -> ResetPage(env, onBack)
+                GenresScreen -> GenresPage(env, onBack)
                 is MenuScreen -> SettingsList(env, e, s, onBack)
             }
         }

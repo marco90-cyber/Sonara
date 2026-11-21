@@ -149,6 +149,8 @@ class Settings(context: Context) {
     // Consigliati e benvenuto
     /** Paese dei consigliati di YouTube Music (codice ISO); vuoto = automatico, quello in cui ci si trova. */
     var region by StringPref(sp, "region", "")
+    /** Generi preferiti (id separati da virgola): aiutano la Home personalizzata. */
+    var favGenres by StringPref(sp, "fav_genres", "")
     /** La schermata di benvenuto è già stata vista (o saltata). */
     var onboardingDone by BoolPref(sp, "onboarding_done", false)
 

@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.Featured
+import com.marco.mlplayer.yt.FavGenres
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtFeed
@@ -69,6 +70,10 @@ private object HomeUi {
     var chipShelves by mutableStateOf<List<YtApi.Shelf>?>(null)
     var genres by mutableStateOf<List<Yt.Entry>>(emptyList())
     var featured by mutableStateOf<List<Yt.Entry>>(emptyList())
+    /** Scaffali dei generi preferiti (scelti in Benvenuto/Impostazioni). */
+    var genreShelves by mutableStateOf<List<YtApi.Shelf>>(emptyList())
+    var genreKey = ""
+    var genreAt = 0L
     var explore by mutableStateOf<List<YtApi.Shelf>>(emptyList())
     var exploreAt = 0L
     var personalAt = 0L
@@ -86,6 +91,7 @@ fun resetHomeFeed() {
     HomeUi.explore = emptyList()
     HomeUi.exploreAt = 0L
     HomeUi.personalAt = 0L
+    HomeUi.genreKey = ""
 }
 
 /** Home e ricerca nella stessa pagina: barra di ricerca in alto, sotto i suggerimenti di YouTube Music. */
@@ -136,6 +142,32 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                 .onFailure { AppLog.e("YouTube", "Suggerimenti personali non riusciti", it) }
         }
     }
+    fun loadGenres() {
+        val picked = FavGenres.parse(env.settings.favGenres)
+        if (picked.isEmpty()) { HomeUi.genreShelves = emptyList(); HomeUi.genreKey = ""; return }
+        // pochi ascolti: i generi guidano la Home (fino a 6 scaffali); con più ascolti ne bastano 2, a rotazione ogni giorno
+        val n = if (env.app.ytStore.plays.size < 15) 6 else 2
+        val day = System.currentTimeMillis() / 86_400_000L
+        val use = picked.shuffled(java.util.Random(day)).take(n)
+        val key = use.joinToString(",") { it.id }
+        if (key == HomeUi.genreKey && System.currentTimeMillis() - HomeUi.genreAt < 6 * 3600_000L) return
+        HomeUi.genreKey = key
+        HomeUi.genreAt = System.currentTimeMillis()
+        HomeUi.genreShelves = emptyList()
+        env.app.appScope.launch {
+            withContext(Dispatchers.IO) {
+                for (g in use) {
+                    runCatching { Yt.searchEntries(g.query, Yt.Kind.Playlists, 1).take(12) }
+                        .onSuccess { l ->
+                            if (key == HomeUi.genreKey && l.isNotEmpty())
+                                HomeUi.genreShelves = HomeUi.genreShelves + YtApi.Shelf("Per te · ${g.label}", l.map { YtApi.Card(null, it) })
+                        }
+                        .onFailure { AppLog.w("HomeFeed", "Genere «${g.label}» non riuscito: ${it.message}") }
+                }
+                if (key == HomeUi.genreKey && HomeUi.genreShelves.isEmpty()) HomeUi.genreKey = ""   // riprovo alla prossima apertura
+            }
+        }
+    }
     fun loadExplore() {
         if (System.currentTimeMillis() - HomeUi.exploreAt < 6 * 3600_000L) return
         HomeUi.exploreAt = System.currentTimeMillis()
@@ -170,6 +202,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
         withContext(Dispatchers.IO) { Featured.load(c) { part -> HomeUi.featured = part } }
             .let { HomeUi.featured = it }
     }
+    LaunchedEffect(env.settings.favGenres) { loadGenres() }
     LaunchedEffect(Unit) {
         loadExplore()
         if (!HomeUi.loading && HomeUi.shelves == null) load()
@@ -245,6 +278,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                 ShelfRow("Ascoltati di recente", recent.map { YtApi.Card(it, null) }, env, open)
             }
             items(HomeUi.personal, key = { "p:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
+            items(HomeUi.genreShelves, key = { "g:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             if (forgotten.isNotEmpty()) item(key = "forgotten") {
                 ShelfRow("Preferiti da riascoltare", forgotten.map { YtApi.Card(it, null) }, env, open)
             }

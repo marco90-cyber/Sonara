@@ -2,6 +2,7 @@ package com.marco.mlplayer.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Equalizer
@@ -94,6 +95,12 @@ fun SettingsHome(env: AppEnv) {
                 icon = Icons.Filled.Public,
             ) { picker = true }
             if (picker) CountryPickerSheet(env) { picker = false }
+            val nGenres = com.marco.mlplayer.yt.FavGenres.parse(s.favGenres).size
+            MLNavRow(
+                "Generi preferiti",
+                if (nGenres == 0) "Scegli i generi per una Home più adatta a te" else "$nGenres scelti",
+                icon = Icons.Filled.Category,
+            ) { go(GenresScreen) }
         }
         MLGroup("Correzione brani") {
             MLSwitchRow(
