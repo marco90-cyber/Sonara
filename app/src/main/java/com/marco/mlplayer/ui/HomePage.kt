@@ -19,10 +19,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -66,9 +68,13 @@ private object HomeUi {
     /** Scaffali personali (dai tuoi ascolti) e relative radio; si rifanno al massimo ogni 6 ore. */
     var personal by mutableStateOf<List<YtApi.Shelf>>(emptyList())
     var radios by mutableStateOf<List<List<Yt.Item>>>(emptyList())
-    var chips by mutableStateOf<List<YtApi.Chip>>(emptyList())
-    var activeChip by mutableStateOf<YtApi.Chip?>(null)
-    var chipShelves by mutableStateOf<List<YtApi.Shelf>?>(null)
+    /** Genere scelto nelle chip sotto la ricerca (null = Home) e i suoi scaffali. */
+    var activeGenre by mutableStateOf<FavGenres.Genre?>(null)
+    var genreChipShelves by mutableStateOf<List<YtApi.Shelf>?>(null)
+    /** Mix quotidiano: uguale per tutta la giornata; si rifà se cambiano generi, artisti o gusti. */
+    var mix by mutableStateOf<List<Yt.Item>>(emptyList())
+    var mixKey = ""
+    var mixLoading by mutableStateOf(false)
     var genres by mutableStateOf<List<Yt.Entry>>(emptyList())
     var featured by mutableStateOf<List<Yt.Entry>>(emptyList())
     /** Scaffali dei generi preferiti (scelti in Benvenuto/Impostazioni). */
@@ -87,9 +93,9 @@ private object HomeUi {
 /** Dopo un cambio di paese la Home si rifà da capo: i consigliati sono quelli del nuovo paese. */
 fun resetHomeFeed() {
     HomeUi.shelves = null
-    HomeUi.chips = emptyList()
-    HomeUi.activeChip = null
-    HomeUi.chipShelves = null
+    HomeUi.activeGenre = null
+    HomeUi.genreChipShelves = null
+    HomeUi.mixKey = ""
     HomeUi.genres = emptyList()
     HomeUi.explore = emptyList()
     HomeUi.exploreAt = 0L
@@ -101,7 +107,9 @@ fun resetHomeFeed() {
 /** Home e ricerca nella stessa pagina: barra di ricerca in alto, sotto i suggerimenti di YouTube Music. */
 @Composable
 fun HomePage(env: AppEnv) {
-    SearchPage(env) { open, search -> HomeContent(env, open, search) }
+    Box(Modifier.fillMaxSize().softBackground(MaterialTheme.colorScheme)) {
+        SearchPage(env) { open, search -> HomeContent(env, open, search) }
+    }
 }
 
 /** Ricerche recenti, ascoltati di recente e suggerimenti (personalizzati se hai fatto l'accesso). */
@@ -114,7 +122,6 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
         HomeUi.error = null
         env.app.appScope.launch {
             val r = withContext(Dispatchers.IO) {
-                runCatching { YtApi.homeFeed().first }.onSuccess { if (it.isNotEmpty()) HomeUi.chips = it }
                 runCatching { YtApi.home() }
             }
             HomeUi.loading = false
@@ -208,16 +215,52 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             }
         }
     }
-    fun pickChip(c: YtApi.Chip?) {
-        HomeUi.activeChip = c
-        HomeUi.chipShelves = null
-        if (c == null) return
+    fun pickGenre(g: FavGenres.Genre?) {
+        HomeUi.activeGenre = g
+        HomeUi.genreChipShelves = null
+        if (g == null) return
         env.app.appScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { YtApi.homeFeed(c.params).second } }
-            if (HomeUi.activeChip == c) {
-                r.onFailure { AppLog.w("HomeFeed", "Filtro «${c.title}» non riuscito: ${it.message}") }
-                HomeUi.chipShelves = r.getOrDefault(emptyList())
+            val out = withContext(Dispatchers.IO) {
+                val l = ArrayList<YtApi.Shelf>()
+                runCatching { Yt.search(g.query, 1).take(15) }.onSuccess { if (it.isNotEmpty()) l.add(YtApi.Shelf("Brani · ${g.label}", it.map { i -> YtApi.Card(i, null) })) }
+                    .onFailure { AppLog.w("HomeFeed", "Brani di «${g.label}» non riusciti: ${it.message}") }
+                runCatching { Yt.searchEntries(g.query, Yt.Kind.Playlists, 1).take(12) }.onSuccess { if (it.isNotEmpty()) l.add(YtApi.Shelf("Playlist · ${g.label}", it.map { e -> YtApi.Card(null, e) })) }
+                    .onFailure { AppLog.w("HomeFeed", "Playlist di «${g.label}» non riuscite: ${it.message}") }
+                runCatching { Yt.searchEntries(g.label, Yt.Kind.Artists, 1).take(12) }.onSuccess { if (it.isNotEmpty()) l.add(YtApi.Shelf("Artisti · ${g.label}", it.map { e -> YtApi.Card(null, e) })) }
+                    .onFailure { AppLog.w("HomeFeed", "Artisti di «${g.label}» non riusciti: ${it.message}") }
+                l.toList()
             }
+            if (HomeUi.activeGenre == g) HomeUi.genreChipShelves = out
+        }
+    }
+    /** Il mix: radio dai tuoi ascolti, brani degli artisti preferiti e dei generi scelti, a turno e senza doppioni. */
+    fun loadMix() {
+        val st = env.app.ytStore
+        val day = System.currentTimeMillis() / 86_400_000L
+        val key = "$day|${env.settings.favGenres}|${env.settings.favArtists}|${HomeUi.radios.sumOf { it.size }}|${st.tasteVersion}"
+        if (key == HomeUi.mixKey || HomeUi.mixLoading) return
+        HomeUi.mixLoading = true
+        val bad = YtTaste.excluder(st.dislikes)
+        val genres = FavGenres.parse(env.settings.favGenres).shuffled(java.util.Random(day)).take(3)
+        val artists = FavArtists.parse(env.settings.favArtists).shuffled(java.util.Random(day)).take(4)
+        val radios = HomeUi.radios
+        env.app.appScope.launch {
+            val pools = withContext(Dispatchers.IO) {
+                val l = ArrayList<List<Yt.Item>>()
+                l.addAll(radios.map { it.shuffled(java.util.Random(day)).take(20) })
+                for (a in artists) runCatching { YtApi.artist(a.browseId).tracks.take(15) }.onSuccess { l.add(it) }
+                    .onFailure { AppLog.w("HomeFeed", "Mix: «${a.title}» non riuscito: ${it.message}") }
+                for (g in genres) runCatching { Yt.search(g.query, 1).take(15) }.onSuccess { l.add(it) }
+                    .onFailure { AppLog.w("HomeFeed", "Mix: «${g.label}» non riuscito: ${it.message}") }
+                l
+            }
+            val seen = HashSet<String>()
+            val out = ArrayList<Yt.Item>()
+            for (i in 0 until (pools.maxOfOrNull { it.size } ?: 0)) for (p in pools) p.getOrNull(i)?.let { if (!bad(it) && seen.add(it.videoId)) out.add(it) }
+            HomeUi.mix = out.take(40)
+            HomeUi.mixLoading = false
+            // senza nulla in mano riprovo alla prossima apertura
+            if (out.isNotEmpty()) HomeUi.mixKey = key
         }
     }
     // classifiche di Spotify e Deezer del paese scelto (in cache per 6 ore)
@@ -228,6 +271,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
     }
     LaunchedEffect(env.settings.favGenres) { loadGenres() }
     LaunchedEffect(env.settings.favArtists) { loadFavArtists() }
+    LaunchedEffect(env.settings.favGenres, env.settings.favArtists, HomeUi.radios, env.app.ytStore.tasteVersion) { loadMix() }
     LaunchedEffect(Unit) {
         loadExplore()
         if (!HomeUi.loading && HomeUi.shelves == null) load()
@@ -273,35 +317,34 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                     items(past) { q -> Pill(q, false, Icons.Filled.History) { search(q) } }
                 }
             }
-            if (HomeUi.chips.isNotEmpty()) item(key = "chips") {
+            item(key = "chips") {
+                val picked = FavGenres.parse(env.settings.favGenres)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
-                    item(key = "home-pill") { Pill("Home", HomeUi.activeChip == null, Icons.Filled.Home) { pickChip(null) } }
-                    items(HomeUi.chips, key = { it.title }) { c ->
-                        Pill(c.title, HomeUi.activeChip == c, null) { pickChip(if (HomeUi.activeChip == c) null else c) }
+                    item(key = "home-pill") { Pill("Home", HomeUi.activeGenre == null, Icons.Filled.Home) { pickGenre(null) } }
+                    items(picked, key = { it.id }) { g ->
+                        Pill(g.label, HomeUi.activeGenre == g, null) { pickGenre(if (HomeUi.activeGenre == g) null else g) }
+                    }
+                    if (picked.isEmpty()) item(key = "pick-genres") {
+                        Pill("Scegli i generi", false, Icons.Filled.Add) { env.settingsNav.push(GenresScreen); env.tab = Tab.Settings }
                     }
                 }
             }
-            if (HomeUi.activeChip != null) {
-                val cs2 = HomeUi.chipShelves
+            if (HomeUi.activeGenre != null) {
+                val cs2 = HomeUi.genreChipShelves
                 if (cs2 == null) item(key = "chip-loading") { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
-                else if (cs2.isEmpty()) item(key = "chip-empty") { Text("Nessun suggerimento per questo filtro", color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
+                else if (cs2.isEmpty()) item(key = "chip-empty") { Text("Nessun suggerimento per questo genere", color = cs.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
                 else items(cs2, key = { "c:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
                 return@LazyColumn
             }
-            if (HomeUi.radios.isNotEmpty()) item(key = "radio-per-te") {
-                Button(onClick = {
-                    env.feedback.tapScreen()
-                    // un brano a turno da ciascuna radio, senza doppioni
-                    val lists = HomeUi.radios
-                    val mixed = ArrayList<Yt.Item>()
-                    val seen = HashSet<String>()
-                    for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) for (l in lists) l.getOrNull(i)?.let { if (seen.add(it.videoId)) mixed.add(it) }
-                    if (mixed.isNotEmpty()) env.playFrom(mixed.map { Yt.toTrack(it) }, 0)
-                }, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { Text("Radio per te") }
+            item(key = "mix") {
+                MixBanner(env, HomeUi.mix, HomeUi.mixLoading) { env.settingsNav.push(GenresScreen); env.tab = Tab.Settings }
             }
             if (recent.isNotEmpty()) item(key = "recent") {
                 ShelfRow("Ascoltati di recente", recent.map { YtApi.Card(it, null) }, env, open)
             }
+            val wide = (HomeUi.genreShelves.mapNotNull { sh -> sh.cards.firstOrNull { it.entry?.kind == Yt.Kind.Playlists }?.entry } + HomeUi.featured.take(3))
+                .distinctBy { it.browseId }.take(4)
+            if (wide.isNotEmpty()) item(key = "recommended") { RecommendedCards(env, wide, open) }
             items(HomeUi.personal, key = { "p:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             items(HomeUi.artistShelves, key = { "a:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
             items(HomeUi.genreShelves, key = { "g:" + it.title }) { sh -> ShelfRow(sh.title, sh.cards, env, open) }
@@ -380,6 +423,10 @@ internal fun ShelfRow(title: String, cards: List<YtApi.Card>, env: AppEnv, onOpe
                             null, tint = cs.onPrimaryContainer,
                         )
                         if (c.thumb.isNotBlank()) AsyncImage(c.thumb, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        if (!artist) Box(
+                            Modifier.align(Alignment.BottomEnd).padding(8.dp).size(32.dp).clip(CircleShape).background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Filled.PlayArrow, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(20.dp)) }
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(c.title, style = MaterialTheme.typography.titleSmall, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)

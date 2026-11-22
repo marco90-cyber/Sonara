@@ -35,12 +35,15 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NorthWest
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
@@ -273,8 +276,9 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
         }
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
-        if (YtUi.open == null) Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    var kindMenu by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        if (YtUi.open == null) Row(Modifier.fillMaxWidth().padding(top = 8.dp, start = 20.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 androidx.compose.ui.text.buildAnnotatedString {
                     append("Son")
@@ -283,27 +287,50 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
                 style = MaterialTheme.typography.headlineMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { env.feedback.tapScreen(); env.tab = Tab.Settings }) {
-                Icon(Icons.Filled.Settings, contentDescription = "Impostazioni")
-            }
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(cs.primary)
+                    .clickable { env.feedback.tapScreen(); env.tab = Tab.Settings },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Filled.Person, contentDescription = "Profilo e impostazioni", tint = cs.onPrimary) }
         }
         OutlinedTextField(
             value = YtUi.query,
             onValueChange = { YtUi.query = it },
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
             singleLine = true,
-            placeholder = { Text("Cerca o incolla il link di una playlist") },
+            placeholder = { Text("Cerca artisti, brani, album…") },
             leadingIcon = { Icon(Icons.Filled.Search, null) },
             trailingIcon = {
-                if (YtUi.query.isNotEmpty()) {
-                    IconButton(onClick = { YtUi.reset() }) { Icon(Icons.Filled.Clear, contentDescription = "Cancella") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (YtUi.query.isNotEmpty()) {
+                        IconButton(onClick = { YtUi.reset() }) { Icon(Icons.Filled.Clear, contentDescription = "Cancella") }
+                    }
+                    Box {
+                        IconButton(onClick = { env.feedback.tapScreen(); kindMenu = true }) { Icon(Icons.Filled.Tune, contentDescription = "Cosa cercare") }
+                        DropdownMenu(expanded = kindMenu, onDismissRequest = { kindMenu = false }) {
+                            for (k in Yt.Kind.entries) DropdownMenuItem(
+                                text = { Text(k.label) },
+                                leadingIcon = { if (YtUi.kind == k) Icon(Icons.Filled.Check, null) },
+                                onClick = {
+                                    kindMenu = false
+                                    YtUi.kind = k
+                                    YtUi.trail.clear()
+                                    if (YtUi.searched.isNotEmpty()) load(YtUi.searched, k)
+                                },
+                            )
+                        }
+                    }
                 }
             },
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = cs.surface.copy(alpha = 0.7f), focusedContainerColor = cs.surface.copy(alpha = 0.7f),
+                unfocusedBorderColor = cs.outlineVariant,
+            ),
             shape = RoundedCornerShape(28.dp),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { run() }),
         )
-        if (YtUi.searched.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (YtUi.searched.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (k in Yt.Kind.entries) {
                 FilterChip(
                     selected = YtUi.kind == k,
@@ -330,6 +357,9 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
             val r = withContext(Dispatchers.IO) { Yt.suggest(typed) }
             YtUi.suggestions = r
         }
+        // la Home arriva fino ai bordi dello schermo (le file scorrono oltre il margine); il resto ha il margine di 16
+        val homeMode = !suggesting && open == null && !YtUi.loading && YtUi.searched.isEmpty()
+        Box(Modifier.fillMaxSize().then(if (homeMode) Modifier else Modifier.padding(horizontal = 16.dp))) {
         when {
             suggesting -> {
                 val history = env.app.ytStore.searches.filter { it.contains(typed, ignoreCase = true) && !it.equals(typed, true) }.take(3)
@@ -374,6 +404,7 @@ fun SearchPage(env: AppEnv, idle: @Composable (open: (Yt.Entry) -> Unit, search:
             else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(YtUi.error ?: "Nessun risultato", color = cs.onSurfaceVariant)
             }
+        }
         }
     }
 }
