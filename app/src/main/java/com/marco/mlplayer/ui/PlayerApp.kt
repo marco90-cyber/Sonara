@@ -26,10 +26,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
@@ -70,6 +73,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.marco.mlplayer.AppUpdateHost
 import com.marco.mlplayer.data.rememberCover
@@ -122,7 +126,7 @@ fun PlayerApp(env: AppEnv) {
                     containerColor = cs.surface,
                     contentWindowInsets = WindowInsets(0),
                     bottomBar = {
-                        Column {
+                        Column(Modifier.background(cs.surface)) {
                             if (env.tab != Tab.NowPlaying && env.engine.currentTrack != null) MiniPlayer(env)
                             NavBar(env)
                         }
@@ -177,7 +181,7 @@ fun PlayerApp(env: AppEnv) {
                     snack.showSnackbar(m)
                     if (env.message == m) env.message = null
                 }
-                SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 88.dp))
+                SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (env.tab != Tab.NowPlaying && env.engine.currentTrack != null) 160.dp else 88.dp))
                 AppUpdateHost()
             }
         }
@@ -198,18 +202,20 @@ private fun NavBar(env: AppEnv) {
                     env.select(t)
                 },
                 icon = { Icon(if (sel) on else off, contentDescription = null) },
-                label = { Text(t.label, maxLines = 1) },
+                label = { Text(t.label, maxLines = 1, softWrap = false, fontSize = 11.sp) },
             )
         }
     }
 }
 
-/** Brano in riproduzione sopra la barra, nelle altre sezioni: tocca per aprire il lettore. */
+/** Brano in riproduzione, in una scheda scura e arrotondata sopra la barra: tocca per aprire il lettore. */
 @Composable
 private fun MiniPlayer(env: AppEnv) {
     val e = env.engine
     val t = e.currentTrack ?: return
     val cs = MaterialTheme.colorScheme
+    val bg = deepAccent(cs)
+    val fg = onDeepAccent(cs)
     var progress by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(t.id, e.isPlaying) {
         while (true) {
@@ -223,10 +229,14 @@ private fun MiniPlayer(env: AppEnv) {
     Column(
         Modifier
             .fillMaxWidth()
-            .background(cs.surfaceContainer)
+            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(bg)
             .clickable { env.feedback.tapScreen(); env.openNowPlaying() }
     ) {
-        Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Apri il lettore", tint = fg, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(4.dp))
             Box(
                 Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(cs.primaryContainer),
                 contentAlignment = Alignment.Center
@@ -234,29 +244,36 @@ private fun MiniPlayer(env: AppEnv) {
                 if (cover != null) Image(cover, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 else Icon(Icons.Filled.MusicNote, null, tint = cs.onPrimaryContainer)
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(t.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(t.title, style = MaterialTheme.typography.titleSmall, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (t.artist.isNotBlank()) {
                     Text(
-                        t.artist, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant,
+                        t.artist, style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = 0.75f),
                         maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }
             }
-            IconButton(onClick = { env.feedback.tapScreen(); env.playPause() }) {
+            IconButton(onClick = { env.feedback.tapScreen(); e.previous() }) {
+                Icon(Icons.Filled.SkipPrevious, contentDescription = "Brano precedente", tint = fg)
+            }
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(fg).clickable { env.feedback.tapScreen(); env.playPause() },
+                contentAlignment = Alignment.Center,
+            ) {
                 Icon(
                     if (e.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (e.isPlaying) "Pausa" else "Riproduci"
+                    contentDescription = if (e.isPlaying) "Pausa" else "Riproduci", tint = bg,
                 )
             }
             IconButton(onClick = { env.feedback.tapScreen(); e.next() }) {
-                Icon(Icons.Filled.SkipNext, contentDescription = "Brano successivo")
+                Icon(Icons.Filled.SkipNext, contentDescription = "Brano successivo", tint = fg)
             }
         }
         LinearProgressIndicator(
             progress = { progress },
             modifier = Modifier.fillMaxWidth().height(2.dp),
+            color = fg, trackColor = fg.copy(alpha = 0.2f),
             drawStopIndicator = {},
             gapSize = 0.dp,
         )
