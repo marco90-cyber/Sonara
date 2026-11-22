@@ -145,7 +145,7 @@ fun NowPlayingPage(env: AppEnv) {
 
     Column(
         Modifier.fillMaxSize()
-            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(cs.primaryContainer.copy(alpha = 0.55f), cs.background)))
+            .softBackground(cs)
             .statusBarsPadding()
     ) {
         // barra in alto
