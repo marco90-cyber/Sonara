@@ -206,6 +206,7 @@ fun LyricsPage(env: AppEnv) {
                 l!!.synced -> SyncedLyrics(env, t!!, l.lines)
                 else -> PlainLyrics(env, l!!.lines)
             }
+            if (t != null && showOffset) OffsetPanel(env, t, Modifier.align(Alignment.BottomCenter)) { showOffset = false }
         }
 
         if (t != null) LyricsTransport(env)
@@ -219,7 +220,6 @@ fun LyricsPage(env: AppEnv) {
         onEdit = { showOptions = false; showEdit = true },
     )
     if (t != null && showSources) LyricsSourcesSheet(env, t) { showSources = false }
-    if (t != null && showOffset) OffsetDialog(env, t) { showOffset = false }
     if (t != null && showEdit) EditLyricsDialog(env, t) { showEdit = false }
 }
 
@@ -562,35 +562,51 @@ private fun SourceRow(title: String, sub: String, selected: Boolean, status: Str
     }
 }
 
+/**
+ * Ritardo di sincronizzazione: pannello compatto sopra il testo (non una finestra a tutto schermo con velo scuro),
+ * così mentre si cambia il valore si vede subito la riga evidenziata spostarsi.
+ */
 @Composable
-private fun OffsetDialog(env: AppEnv, t: Track, onDismiss: () -> Unit) {
+private fun OffsetPanel(env: AppEnv, t: Track, modifier: Modifier = Modifier, onDismiss: () -> Unit) {
     val store = env.lyrics
+    val cs = MaterialTheme.colorScheme
     @Suppress("UNUSED_VARIABLE") val tick = store.offsetTick
     val v = store.offset(t)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Ritardo di sincronizzazione") },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Text(fmtOffset(v), style = MaterialTheme.typography.displaySmall)
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (d in listOf(-500, -100, 100, 500)) {
-                        OutlinedButton(onClick = { store.setOffset(t, v + d) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
-                            Text((if (d > 0) "+" else "−") + String.format(Locale.ITALY, "%.1f", kotlin.math.abs(d) / 1000f))
-                        }
+    Surface(
+        modifier = modifier.fillMaxWidth().padding(12.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = cs.surfaceContainerHigh,
+        tonalElevation = 6.dp,
+        shadowElevation = 8.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Timer, contentDescription = null, tint = cs.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                Text("Ritardo", style = MaterialTheme.typography.titleSmall, color = cs.onSurfaceVariant)
+                Spacer(Modifier.width(10.dp))
+                Text(fmtOffset(v), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                TextButton(onClick = { store.setOffset(t, 0) }) { Text("Azzera") }
+                TextButton(onClick = onDismiss) { Text("Fatto") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (d in listOf(-500, -100, 100, 500)) {
+                    OutlinedButton(
+                        onClick = { store.setOffset(t, v + d) },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) {
+                        Text((if (d > 0) "+" else "−") + String.format(Locale.ITALY, "%.1f", kotlin.math.abs(d) / 1000f))
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Con un valore positivo il testo arriva prima, con uno negativo arriva dopo. Vale solo per questo brano.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Fatto") } },
-        dismissButton = { TextButton(onClick = { store.setOffset(t, 0) }) { Text("Azzera") } },
-    )
+            Text(
+                "Positivo: il testo arriva prima · negativo: dopo. Vale solo per questo brano.",
+                style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
 }
 
 @Composable
