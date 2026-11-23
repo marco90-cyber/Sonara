@@ -382,7 +382,8 @@ fun NowPlayingPage(env: AppEnv) {
             }
 
             // prossimo brano in coda
-            val next = e.queueTracks.getOrNull(e.queueIndex + 1)
+            @Suppress("UNUSED_VARIABLE") val order = e.queueIndex to e.shuffleOn   // ricalcola se cambia mescola
+            val next = e.upNext()
             if (next != null) Surface(
                 shape = RoundedCornerShape(16.dp), color = cs.surfaceContainerHigh.copy(alpha = 0.7f),
                 modifier = Modifier.fillMaxWidth().clickable { fb.tapScreen(); env.showQueue = true },
