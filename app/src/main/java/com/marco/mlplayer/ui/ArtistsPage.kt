@@ -156,7 +156,12 @@ private fun ArtistGrid(env: AppEnv, list: List<Yt.Entry>) {
             val on = FavArtists.has(s.favArtists, e.browseId)
             Column(
                 Modifier.width(88.dp).clip(RoundedCornerShape(12.dp))
-                    .clickable { env.feedback.tapScreen(); s.favArtists = FavArtists.toggle(s.favArtists, e) },
+                    .clickable {
+                        env.feedback.tapScreen()
+                        s.favArtists = FavArtists.toggle(s.favArtists, e)
+                        // un artista scelto si ritrova anche in Libreria › Salvati
+                        if (FavArtists.has(s.favArtists, e.browseId)) env.app.ytStore.addSaved(e)
+                    },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(Modifier.size(76.dp).clip(CircleShape).background(cs.primaryContainer), contentAlignment = Alignment.Center) {

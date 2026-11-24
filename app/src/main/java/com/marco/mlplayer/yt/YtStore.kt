@@ -73,6 +73,13 @@ class YtStore(context: Context) {
         return now
     }
 
+    /** Aggiunge alla libreria (se non c'è già) una playlist, un album o un artista, senza mai toglierlo. */
+    fun addSaved(e: Yt.Entry) {
+        if (isSaved(e.browseId)) return
+        saved = listOf(e) + saved
+        save()
+    }
+
     fun isFavorite(videoId: String) = favorites.any { it.videoId == videoId }
 
     fun toggleFavorite(item: Yt.Item): Boolean {
