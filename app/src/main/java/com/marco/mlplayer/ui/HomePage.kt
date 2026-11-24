@@ -35,6 +35,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -122,6 +124,7 @@ fun HomePage(env: AppEnv) {
 }
 
 /** Ricerche recenti, ascoltati di recente e suggerimenti (personalizzati se hai fatto l'accesso). */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) -> Unit) {
     val cs = MaterialTheme.colorScheme
@@ -377,6 +380,20 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
         loadPersonal(env.app.ytStore.tasteVersion != HomeUi.version)
     }
 
+    // trascinando verso il basso la Home si riaggiorna: suggerimenti, mix, novità e scaffali personali
+    var refreshing by remember { mutableStateOf(false) }
+    fun refreshAll() {
+        refreshing = true
+        HomeUi.mixKey = ""; HomeUi.releasesAt = 0L; HomeUi.exploreAt = 0L; HomeUi.genreKey = ""; HomeUi.genreAt = 0L
+        load(); loadPersonal(true); loadGenres(); loadMix(); loadWeekly(); loadReleases(); loadExplore()
+    }
+    if (refreshing) LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(800)
+        var waited = 0
+        while (waited < 12_000 && (HomeUi.loading || HomeUi.personalLoading || HomeUi.mixLoading)) { kotlinx.coroutines.delay(300); waited += 300 }
+        refreshing = false
+    }
+
     var removing by remember { mutableStateOf<Yt.Entry?>(null) }
     removing?.let { r ->
         AlertDialog(
@@ -409,7 +426,8 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             Text(HomeUi.error!!, color = cs.onSurfaceVariant, modifier = Modifier.padding(bottom = 16.dp))
             Button(onClick = { load() }) { Text("Riprova") }
         }
-        else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
+        else -> PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshAll() }, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
             if (past.isNotEmpty()) item(key = "ricerche") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp)) {
                     items(past) { q -> Pill(q, false, Icons.Filled.History) { search(q) } }
@@ -475,6 +493,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                     Icon(Icons.Filled.Refresh, null); Text("Aggiorna suggerimenti")
                 }
             }
+        }
         }
     }
 }
