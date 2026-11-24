@@ -458,7 +458,7 @@ private fun TopSong(env: AppEnv, songs: List<Yt.Item>) {
 
 /** Riga di un artista, album o playlist: tocca per aprirlo. */
 @Composable
-internal fun EntryRow(e: Yt.Entry, onClick: () -> Unit) {
+internal fun EntryRow(e: Yt.Entry, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val shape = if (e.kind == Yt.Kind.Artists) CircleShape else RoundedCornerShape(10.dp)
     Row(
@@ -474,6 +474,7 @@ internal fun EntryRow(e: Yt.Entry, onClick: () -> Unit) {
             Text(e.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (e.subtitle.isNotBlank()) Text(e.subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        trailing?.invoke()
     }
 }
 

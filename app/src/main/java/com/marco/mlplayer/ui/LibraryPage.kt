@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
@@ -74,6 +75,10 @@ private object LibUi {
     val trail = androidx.compose.runtime.mutableStateListOf<Yt.Entry>()
     /** Gruppo di download aperto in Scaricati. */
     var dlOpen by mutableStateOf<String?>(null)
+    /** Salvati: filtro (0 tutti, 1 artisti, 2 playlist, 3 album) e ordine (0 recenti, 1 A-Z). */
+    var savedKind by mutableIntStateOf(0)
+    var savedSort by mutableIntStateOf(0)
+    var savedQuery by mutableStateOf("")
 }
 
 /** Libreria di Sonara: preferiti, salvati e cronologia. */
@@ -336,11 +341,63 @@ private fun SavedSection(env: AppEnv) {
         }
         return
     }
+    val kinds = listOf<Pair<Yt.Kind?, String>>(null to "Tutti", Yt.Kind.Artists to "Artisti", Yt.Kind.Playlists to "Playlist", Yt.Kind.Albums to "Album")
+    val kind = kinds[LibUi.savedKind.coerceIn(0, 3)].first
+    val q = com.marco.mlplayer.yt.YtTaste.norm(LibUi.savedQuery)
+    fun norm(t: String) = com.marco.mlplayer.yt.YtTaste.norm(t)
+    val shown = saved.filter { e ->
+        (kind == null || e.kind == kind) && (q.isEmpty() || norm(e.title).contains(q) || norm(e.subtitle).contains(q))
+    }.let { l -> if (LibUi.savedSort == 1) l.sortedBy { norm(it.title) } else l }
+    androidx.compose.material3.OutlinedTextField(
+        value = LibUi.savedQuery, onValueChange = { LibUi.savedQuery = it },
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(28.dp),
+        placeholder = { Text("Cerca nei salvati") },
+        leadingIcon = { Icon(Icons.Filled.Search, null) },
+    )
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        kinds.forEachIndexed { i, (k, label) ->
+            val n = if (k == null) saved.size else saved.count { it.kind == k }
+            FilterChip(selected = LibUi.savedKind == i, onClick = { LibUi.savedKind = i }, label = { Text("$label · $n") })
+        }
+        FilterChip(
+            selected = false, onClick = { LibUi.savedSort = 1 - LibUi.savedSort },
+            label = { Text(if (LibUi.savedSort == 0) "Recenti" else "A-Z") },
+        )
+    }
+    @Composable
+    fun Row1(e: Yt.Entry) {
+        EntryRow(
+            e.copy(subtitle = listOf(e.kind.label, e.subtitle).filter { it.isNotBlank() }.distinct().joinToString(" · ")),
+            trailing = {
+                // segnalibro pieno: un tocco toglie dai Salvati (con «Annulla»)
+                androidx.compose.material3.IconButton(onClick = {
+                    env.feedback.tapScreen()
+                    env.app.ytStore.toggleSaved(e)
+                    env.messageAction = "Annulla" to { env.app.ytStore.addSaved(e) }
+                    env.message = "«${e.title}» tolto dai Salvati"
+                }) { Icon(Icons.Filled.Bookmark, contentDescription = "Togli dai Salvati", tint = cs.primary) }
+            },
+        ) { env.feedback.tapScreen(); openYtEntry(env, e, LibUi.trail) }
+    }
+    if (shown.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Nessun risultato", color = cs.onSurfaceVariant, modifier = Modifier.padding(24.dp))
+        }
+        return
+    }
     LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp)) {
-        items(saved, key = { it.browseId }) { e ->
-            EntryRow(e.copy(subtitle = listOf(e.kind.label, e.subtitle).filter { it.isNotBlank() }.distinct().joinToString(" · "))) {
-                env.feedback.tapScreen(); openYtEntry(env, e, LibUi.trail)
+        if (kind == null) {
+            // in «Tutti» le voci sono divise in sezioni
+            for (k in listOf(Yt.Kind.Artists, Yt.Kind.Playlists, Yt.Kind.Albums)) {
+                val part = shown.filter { it.kind == k }
+                if (part.isEmpty()) continue
+                item(key = "h_" + k.name) {
+                    Text("${k.label} · ${part.size}", style = MaterialTheme.typography.titleSmall, color = cs.primary, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+                }
+                items(part, key = { "e_" + it.browseId }) { e -> Row1(e) }
             }
+        } else {
+            items(shown, key = { "e_" + it.browseId }) { e -> Row1(e) }
         }
     }
 }

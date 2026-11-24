@@ -367,7 +367,10 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
     LaunchedEffect(env.settings.favGenres, env.settings.favArtists, HomeUi.radios, env.app.ytStore.tasteVersion) { loadMix(); loadWeekly(); loadReleases() }
     LaunchedEffect(Unit) {
         // gli artisti già scelti (Benvenuto o Impostazioni) devono essere anche in Libreria › Salvati
-        FavArtists.parse(env.settings.favArtists).forEach { env.app.ytStore.addSaved(it) }
+        if (!env.settings.favArtistsSynced) {
+            FavArtists.parse(env.settings.favArtists).forEach { env.app.ytStore.addSaved(it) }
+            env.settings.favArtistsSynced = true
+        }
         loadExplore()
         if (!HomeUi.loading && HomeUi.shelves == null) load()
         // dopo un «mi piace» o «non mi piace» rifaccio i suggerimenti personali

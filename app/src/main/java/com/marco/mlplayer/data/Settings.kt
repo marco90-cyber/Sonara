@@ -181,6 +181,8 @@ class Settings(context: Context) {
     // Correzione brani
     /** Cambia da sola la sorgente dei brani con la durata fuori misura (altro brano, videoclip più lungo). */
     var autoFix by BoolPref(sp, "auto_fix", false)
+    /** Gli artisti scelti prima dell'aggiornamento sono già stati copiati in Libreria › Salvati (una volta sola). */
+    var favArtistsSynced by BoolPref(sp, "fav_artists_synced", false)
     /** Quando la coda sta per finire, accoda altri brani simili dalla radio di YouTube Music. */
     var infiniteRadio by BoolPref(sp, "infinite_radio", true)
 

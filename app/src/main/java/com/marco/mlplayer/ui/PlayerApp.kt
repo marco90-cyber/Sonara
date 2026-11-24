@@ -178,7 +178,10 @@ fun PlayerApp(env: AppEnv) {
                 val snack = remember { SnackbarHostState() }
                 LaunchedEffect(env.message) {
                     val m = env.message ?: return@LaunchedEffect
-                    snack.showSnackbar(m)
+                    val act = env.messageAction
+                    env.messageAction = null
+                    val r = snack.showSnackbar(m, actionLabel = act?.first)
+                    if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) act?.second?.invoke()
                     if (env.message == m) env.message = null
                 }
                 SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (env.tab != Tab.NowPlaying && env.engine.currentTrack != null) 160.dp else 88.dp))

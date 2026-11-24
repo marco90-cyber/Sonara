@@ -155,6 +155,8 @@ class AppEnv(val app: MLPlayerApp) {
 
     /** Messaggio breve in basso (Snackbar). */
     var message by mutableStateOf<String?>(null)
+    /** Azione del messaggio (es. «Annulla»): etichetta e cosa fare; si imposta prima di [message]. */
+    var messageAction by mutableStateOf<Pair<String, () -> Unit>?>(null)
 
     /** Testi dei brani (cache, file, fonti online). */
     val lyrics by lazy { com.marco.mlplayer.lyrics.LyricsStore(app, app.settings) }
