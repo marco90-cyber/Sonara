@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Download
@@ -79,22 +80,37 @@ private object LibUi {
     var savedKind by mutableIntStateOf(0)
     var savedSort by mutableIntStateOf(0)
     var savedQuery by mutableStateOf("")
+    /** Playlist tue aperta, e ricerca/ordine dei Preferiti (0 recenti, 1 A-Z, 2 artista). */
+    var myOpen by mutableStateOf<String?>(null)
+    var favSort by mutableIntStateOf(0)
+    var favQuery by mutableStateOf("")
 }
 
-/** Libreria di Sonara: preferiti, salvati e cronologia. */
+/** Raccolta di Sonara: preferiti, playlist tue, salvati, scaricati, cronologia e riepilogo degli ascolti. */
 @Composable
 fun LibraryPage(env: AppEnv) {
     val cs = MaterialTheme.colorScheme
     val store = env.app.ytStore
     BackHandler(enabled = LibUi.page == 4 && LibUi.dlOpen != null) { LibUi.dlOpen = null }
+    BackHandler(enabled = LibUi.page == 5 && LibUi.myOpen != null) { LibUi.myOpen = null }
     BackHandler(enabled = LibUi.page == 3 && LibUi.trail.isNotEmpty()) { LibUi.trail.removeAt(LibUi.trail.lastIndex) }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
-        Text("Libreria", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+        Text("Raccolta", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = LibUi.page == 0, onClick = { LibUi.page = 0 }, label = { Text("Preferiti · ${store.favorites.size}") })
+            FilterChip(selected = LibUi.page == 5, onClick = { LibUi.page = 5 }, label = { Text("Playlist · ${store.myPlaylists.size}") })
             FilterChip(selected = LibUi.page == 3, onClick = { LibUi.page = 3 }, label = { Text("Salvati · ${store.saved.size}") })
             FilterChip(selected = LibUi.page == 4, onClick = { LibUi.page = 4 }, label = { Text("Scaricati · ${YtDownloads.entries.map { it.item.videoId }.distinct().size}") })
             FilterChip(selected = LibUi.page == 1, onClick = { LibUi.page = 1 }, label = { Text("Cronologia") })
+            FilterChip(selected = LibUi.page == 6, onClick = { LibUi.page = 6 }, label = { Text("Riepilogo") })
+        }
+        if (LibUi.page == 5) {
+            PlaylistsSection(env)
+            return@Column
+        }
+        if (LibUi.page == 6) {
+            SummarySection(env)
+            return@Column
         }
         if (LibUi.page == 3) {
             SavedSection(env)
@@ -121,14 +137,37 @@ fun LibraryPage(env: AppEnv) {
                 )
             }
         } else {
-            TrackList(env, items, showClear = LibUi.page == 1)
+            var list = items
+            if (LibUi.page == 0) {
+                // Preferiti: ricerca e ordine
+                val norm = com.marco.mlplayer.yt.YtTaste::norm
+                androidx.compose.material3.OutlinedTextField(
+                    value = LibUi.favQuery, onValueChange = { LibUi.favQuery = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, shape = RoundedCornerShape(28.dp),
+                    placeholder = { Text("Cerca nei preferiti") },
+                    leadingIcon = { Icon(Icons.Filled.Search, null) },
+                )
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Recenti", "A-Z", "Artista").forEachIndexed { i, l ->
+                        FilterChip(selected = LibUi.favSort == i, onClick = { LibUi.favSort = i }, label = { Text(l) })
+                    }
+                }
+                val q = norm(LibUi.favQuery)
+                if (q.isNotEmpty()) list = list.filter { norm(it.title).contains(q) || norm(it.artist).contains(q) }
+                list = when (LibUi.favSort) {
+                    1 -> list.sortedBy { norm(it.title) }
+                    2 -> list.sortedWith(compareBy({ norm(it.artist) }, { norm(it.title) }))
+                    else -> list
+                }
+            }
+            TrackList(env, list, showClear = LibUi.page == 1)
         }
     }
 }
 
 /** Pulsanti Riproduci/Casuale e l'elenco di brani. */
 @Composable
-internal fun TrackList(env: AppEnv, items: List<Yt.Item>, showClear: Boolean = false) {
+internal fun TrackList(env: AppEnv, items: List<Yt.Item>, showClear: Boolean = false, onRemove: ((Yt.Item) -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilledTonalButton(onClick = { env.playFrom(items.map { Yt.toTrack(it) }, 0) }) {
             Icon(Icons.Filled.PlayArrow, null); Text("Riproduci")
@@ -143,7 +182,7 @@ internal fun TrackList(env: AppEnv, items: List<Yt.Item>, showClear: Boolean = f
     }
     LazyColumn(Modifier.fillMaxSize()) {
         itemsIndexed(items, key = { i, it -> "${i}_${it.videoId}" }) { index, item ->
-            YtRow(env, item) {
+            YtRow(env, item, onRemove = onRemove?.let { r -> { r(item) } }) {
                 env.feedback.tapScreen()
                 env.playFrom(items.map { Yt.toTrack(it) }, index)
             }
@@ -483,5 +522,147 @@ private fun DownloadsSection(env: AppEnv) {
             },
             dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = null }) { Text("Annulla") } },
         )
+    }
+}
+
+
+/** Le tue playlist: crea, apri, rinomina, elimina; i brani si aggiungono dal menu ⋮ di un brano. */
+@Composable
+private fun PlaylistsSection(env: AppEnv) {
+    val cs = MaterialTheme.colorScheme
+    val st = env.app.ytStore
+    val open = LibUi.myOpen?.let { id -> st.myPlaylists.firstOrNull { it.id == id } }
+    var creating by androidx.compose.runtime.remember { mutableStateOf(false) }
+    var renaming by androidx.compose.runtime.remember { mutableStateOf(false) }
+    var deleting by androidx.compose.runtime.remember { mutableStateOf(false) }
+    var name by androidx.compose.runtime.remember { mutableStateOf("") }
+    if (open != null) {
+        Column(Modifier.fillMaxSize()) {
+            BackRow(open.name) { LibUi.myOpen = null }
+            Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { name = open.name; renaming = true }) { Text("Rinomina") }
+                OutlinedButton(onClick = { deleting = true }) { Text("Elimina") }
+            }
+            if (open.items.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Playlist vuota: usa «Aggiungi a una playlist» nel menu ⋮ di un brano", color = cs.onSurfaceVariant, modifier = Modifier.padding(24.dp), textAlign = TextAlign.Center)
+                }
+            } else {
+                TrackList(env, open.items, onRemove = { st.removeFromPlaylist(open.id, it.videoId) })
+            }
+        }
+        if (renaming) androidx.compose.material3.AlertDialog(
+            onDismissRequest = { renaming = false },
+            title = { Text("Rinomina la playlist") },
+            text = { androidx.compose.material3.OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true) },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { st.renamePlaylist(open.id, name); renaming = false }) { Text("Salva") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { renaming = false }) { Text("Annulla") } },
+        )
+        if (deleting) androidx.compose.material3.AlertDialog(
+            onDismissRequest = { deleting = false },
+            title = { Text("Eliminare la playlist?") },
+            text = { Text("«${open.name}» e il suo elenco di brani verranno cancellati. I brani scaricati restano.") },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { st.deletePlaylist(open.id); LibUi.myOpen = null; deleting = false }) { Text("Elimina") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { deleting = false }) { Text("Annulla") } },
+        )
+        return
+    }
+    Column(Modifier.fillMaxSize()) {
+        FilledTonalButton(onClick = { name = ""; creating = true }, modifier = Modifier.padding(vertical = 8.dp)) {
+            Icon(Icons.Filled.Add, null); Spacer(Modifier.width(6.dp)); Text("Nuova playlist")
+        }
+        if (st.myPlaylists.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Nessuna playlist tua: creane una e aggiungi i brani dal menu ⋮", color = cs.onSurfaceVariant, modifier = Modifier.padding(24.dp), textAlign = TextAlign.Center)
+            }
+        } else LazyColumn(Modifier.fillMaxSize()) {
+            items(st.myPlaylists, key = { it.id }) { p ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { env.feedback.tapScreen(); LibUi.myOpen = p.id }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.QueueMusic, null, tint = cs.onPrimaryContainer)
+                        p.items.firstOrNull()?.let { AsyncImage(it.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(p.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("Playlist tua · ${p.items.size} brani", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+    if (creating) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { creating = false },
+        title = { Text("Nuova playlist") },
+        text = { androidx.compose.material3.OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Nome") }) },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { val p = st.createPlaylist(name); LibUi.myOpen = p.id; creating = false }) { Text("Crea") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { creating = false }) { Text("Annulla") } },
+    )
+}
+
+/** Riepilogo degli ascolti: totali, artisti e brani più ascoltati, generi preferiti (dai punteggi). */
+@Composable
+private fun SummarySection(env: AppEnv) {
+    val cs = MaterialTheme.colorScheme
+    val st = env.app.ytStore
+    val plays = st.plays.values.toList()
+    val total = plays.sumOf { it.count }
+    if (total == 0) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Ascolta qualche brano (almeno 30 secondi): qui vedrai artisti, brani e generi più ascoltati", color = cs.onSurfaceVariant, modifier = Modifier.padding(24.dp), textAlign = TextAlign.Center)
+        }
+        return
+    }
+    val byArtist = LinkedHashMap<String, Pair<String, Int>>()
+    for (p in plays) {
+        val a = com.marco.mlplayer.yt.YtTaste.artistNames(p.item.artist).firstOrNull() ?: continue
+        val k = com.marco.mlplayer.yt.YtTaste.norm(a)
+        byArtist[k] = a to ((byArtist[k]?.second ?: 0) + p.count)
+    }
+    val topArtists = byArtist.values.sortedByDescending { it.second }.take(5)
+    val topTracks = plays.sortedByDescending { it.count }.take(5)
+    val prof = com.marco.mlplayer.yt.YtTaste.profile(st.plays, st.history, st.favorites, st.skips, st.dislikes)
+    val scores = com.marco.mlplayer.yt.YtTaste.genreScores(prof) { com.marco.mlplayer.yt.YtGenres.genreOf(it, st) }
+    val topGenres = scores.entries.filter { it.value > 0 }.sortedByDescending { it.value }.take(4)
+        .mapNotNull { e -> com.marco.mlplayer.yt.FavGenres.ALL.firstOrNull { it.id == e.key }?.label }
+    LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((n, l) in listOf(total to "ascolti", plays.size to "brani", byArtist.size to "artisti")) {
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainerHigh).padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text("$n", style = MaterialTheme.typography.headlineSmall, color = cs.primary)
+                        Text(l, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        item { Text("Artisti più ascoltati", style = MaterialTheme.typography.titleSmall, color = cs.primary, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
+        itemsIndexed(topArtists) { i, a ->
+            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${i + 1}", style = MaterialTheme.typography.titleMedium, color = cs.onSurfaceVariant, modifier = Modifier.width(28.dp))
+                    Text(a.first, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${a.second} ascolti", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                }
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = { a.second.toFloat() / topArtists.first().second },
+                    modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 4.dp),
+                )
+            }
+        }
+        item { Text("Brani più ascoltati", style = MaterialTheme.typography.titleSmall, color = cs.primary, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+        itemsIndexed(topTracks) { i, p ->
+            YtRow(env, p.item) { env.feedback.tapScreen(); env.playFrom(topTracks.map { Yt.toTrack(it.item) }, i) }
+        }
+        if (topGenres.isNotEmpty()) {
+            item { Text("Generi che ascolti di più", style = MaterialTheme.typography.titleSmall, color = cs.primary, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+            item { Text(topGenres.joinToString(" · "), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 24.dp)) }
+        }
     }
 }

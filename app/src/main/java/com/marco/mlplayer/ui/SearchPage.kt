@@ -480,7 +480,7 @@ internal fun EntryRow(e: Yt.Entry, trailing: (@Composable () -> Unit)? = null, o
 
 /** Riga di un brano YouTube: tocca per suonare; il menu ⋮ ha coda e preferiti. */
 @Composable
-fun YtRow(env: AppEnv, item: Yt.Item, onClick: () -> Unit) {
+fun YtRow(env: AppEnv, item: Yt.Item, onRemove: (() -> Unit)? = null, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     var menu by remember { mutableStateOf(false) }
     val fav = env.app.ytStore.isFavorite(item.videoId)
@@ -530,6 +530,8 @@ fun YtRow(env: AppEnv, item: Yt.Item, onClick: () -> Unit) {
             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Altre azioni") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Avvia radio") }, onClick = { menu = false; env.playWithRadio(item) })
+                DropdownMenuItem(text = { Text("Aggiungi a una playlist") }, onClick = { menu = false; env.addToPlaylistItem = item })
+                if (onRemove != null) DropdownMenuItem(text = { Text("Togli da questa playlist") }, onClick = { menu = false; onRemove() })
                 DropdownMenuItem(text = { Text("Riproduci dopo") }, onClick = {
                     menu = false; env.engine.playNext(Yt.toTrack(item)); env.message = "Aggiunto: riproduci dopo"
                 })

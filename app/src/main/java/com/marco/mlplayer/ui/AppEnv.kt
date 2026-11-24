@@ -16,7 +16,7 @@ enum class Overlay { None, Log, Analyzer, Lyrics, Cover, Tags, Source }
 /** Sezioni della barra di navigazione in basso. */
 enum class Tab(val label: String) {
     Home("Home"),
-    Library("Libreria"),
+    Library("Raccolta"),
     NowPlaying("Lettore"),
     Eq("EQ"),
     Settings("Impostazioni"),
@@ -155,6 +155,8 @@ class AppEnv(val app: MLPlayerApp) {
 
     /** Messaggio breve in basso (Snackbar). */
     var message by mutableStateOf<String?>(null)
+    /** Brano da aggiungere a una playlist tua (apre la finestra di scelta). */
+    var addToPlaylistItem by mutableStateOf<com.marco.mlplayer.yt.Yt.Item?>(null)
     /** Azione del messaggio (es. «Annulla»): etichetta e cosa fare; si imposta prima di [message]. */
     var messageAction by mutableStateOf<Pair<String, () -> Unit>?>(null)
 

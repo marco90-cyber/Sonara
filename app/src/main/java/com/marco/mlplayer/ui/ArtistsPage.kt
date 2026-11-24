@@ -159,7 +159,7 @@ private fun ArtistGrid(env: AppEnv, list: List<Yt.Entry>) {
                     .clickable {
                         env.feedback.tapScreen()
                         s.favArtists = FavArtists.toggle(s.favArtists, e)
-                        // un artista scelto si ritrova anche in Libreria › Salvati
+                        // un artista scelto si ritrova anche in Raccolta › Salvati
                         if (FavArtists.has(s.favArtists, e.browseId)) env.app.ytStore.addSaved(e)
                     },
                 horizontalAlignment = Alignment.CenterHorizontally,

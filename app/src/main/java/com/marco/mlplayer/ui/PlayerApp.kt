@@ -171,6 +171,8 @@ fun PlayerApp(env: AppEnv) {
                 env.durationCheck?.let { DurationCheckSheet(env, it) }
                 if (env.showTrackMenu && env.engine.currentTrack != null) TrackMenuSheet(env)
 
+                env.addToPlaylistItem?.let { AddToPlaylistDialog(env, it) { env.addToPlaylistItem = null } }
+
                 // benvenuto: al primo avvio, o riaperto dalle Impostazioni
                 if (env.showWelcome) WelcomeScreen(env)
 

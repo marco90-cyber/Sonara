@@ -116,6 +116,9 @@ fun TrackMenuSheet(env: AppEnv) {
             MenuEntry(Icons.Filled.MusicNote, "Avvia radio", "Brani simili a questo, da YouTube Music") {
                 env.showTrackMenu = false; env.playWithRadio(yi)
             }
+            MenuEntry(Icons.Filled.MusicNote, "Aggiungi a una playlist", "Una delle tue playlist, o una nuova") {
+                env.showTrackMenu = false; env.addToPlaylistItem = yi
+            }
             val changed = com.marco.mlplayer.yt.YtOverrides[yi.videoId]
             MenuEntry(
                 Icons.Filled.SwapHoriz, "Cambia sorgente",

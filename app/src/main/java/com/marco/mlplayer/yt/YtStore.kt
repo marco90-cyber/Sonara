@@ -10,6 +10,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
+/** Una playlist creata dall'utente in Sonara. */
+data class MyPlaylist(val id: String, val name: String, val items: List<Yt.Item>)
+
 /** Preferiti, cronologia e ultime ricerche di Sonara (file JSON locale, nessun account richiesto). */
 class YtStore(context: Context) {
     private val file = File(context.filesDir, "yt_store.json")
@@ -46,6 +49,10 @@ class YtStore(context: Context) {
     var artistGenres by mutableStateOf(emptyMap<String, String>())
         private set
 
+    /** Le playlist create da te (il nome e i brani); le più recenti in alto. */
+    var myPlaylists by mutableStateOf(emptyList<MyPlaylist>())
+        private set
+
     init {
         runCatching {
             if (file.exists()) {
@@ -55,6 +62,7 @@ class YtStore(context: Context) {
                 saved = entries(o.optJSONArray("saved"))
                 plays = playsOf(o.optJSONArray("plays"))
                 dislikes = items(o.optJSONArray("dislikes"))
+                myPlaylists = playlistsOf(o.optJSONArray("playlists"))
                 skips = o.optJSONObject("skips")?.let { j -> j.keys().asSequence().associateWith { j.optInt(it) }.filterValues { it > 0 } } ?: emptyMap()
                 trackGenres = strMap(o.optJSONObject("trackGenres"))
                 artistGenres = strMap(o.optJSONObject("artistGenres"))
@@ -77,6 +85,40 @@ class YtStore(context: Context) {
     fun addSaved(e: Yt.Entry) {
         if (isSaved(e.browseId)) return
         saved = listOf(e) + saved
+        save()
+    }
+
+    /** Crea una playlist vuota e la restituisce. */
+    fun createPlaylist(name: String): MyPlaylist {
+        val p = MyPlaylist("p" + System.currentTimeMillis().toString(36) + (0..999).random(), name.trim().ifEmpty { "Nuova playlist" }, emptyList())
+        myPlaylists = listOf(p) + myPlaylists
+        save()
+        return p
+    }
+
+    fun renamePlaylist(id: String, name: String) {
+        val n = name.trim()
+        if (n.isEmpty()) return
+        myPlaylists = myPlaylists.map { if (it.id == id) it.copy(name = n) else it }
+        save()
+    }
+
+    fun deletePlaylist(id: String) {
+        myPlaylists = myPlaylists.filter { it.id != id }
+        save()
+    }
+
+    /** Aggiunge il brano in fondo alla playlist; false se c'era già. */
+    fun addToPlaylist(id: String, item: Yt.Item): Boolean {
+        val p = myPlaylists.firstOrNull { it.id == id } ?: return false
+        if (p.items.any { it.videoId == item.videoId }) return false
+        myPlaylists = myPlaylists.map { if (it.id == id) it.copy(items = it.items + item) else it }
+        save()
+        return true
+    }
+
+    fun removeFromPlaylist(id: String, videoId: String) {
+        myPlaylists = myPlaylists.map { if (it.id == id) it.copy(items = it.items.filter { i -> i.videoId != videoId }) else it }
         save()
     }
 
@@ -153,7 +195,7 @@ class YtStore(context: Context) {
     fun clearAll() {
         favorites = emptyList(); saved = emptyList(); history = emptyList()
         searches = emptyList(); plays = emptyMap(); dislikes = emptyList()
-        skips = emptyMap(); trackGenres = emptyMap()
+        skips = emptyMap(); trackGenres = emptyMap(); myPlaylists = emptyList()
         tasteVersion++
         save()
     }
@@ -189,6 +231,15 @@ class YtStore(context: Context) {
     private fun strMap(o: JSONObject?): Map<String, String> =
         o?.let { j -> j.keys().asSequence().associateWith { j.optString(it) } } ?: emptyMap()
 
+    private fun playlistsOf(a: JSONArray?): List<MyPlaylist> {
+        if (a == null) return emptyList()
+        return (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            val id = o.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            MyPlaylist(id, o.optString("name", "Playlist"), items(o.optJSONArray("items")))
+        }
+    }
+
     private fun entries(a: JSONArray?): List<Yt.Entry> =
         if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let { o -> Yt.Entry.fromJson(o) } }
 
@@ -198,6 +249,9 @@ class YtStore(context: Context) {
         .put("searches", JSONArray(searches))
         .put("saved", JSONArray().apply { saved.forEach { put(it.toJson()) } })
         .put("dislikes", JSONArray().apply { dislikes.forEach { put(it.toJson()) } })
+        .put("playlists", JSONArray().apply {
+            myPlaylists.forEach { p -> put(JSONObject().put("id", p.id).put("name", p.name).put("items", JSONArray().apply { p.items.forEach { put(it.toJson()) } })) }
+        })
         .put("skips", JSONObject().apply { skips.forEach { (k, v) -> put(k, v) } })
         .put("trackGenres", JSONObject().apply { trackGenres.forEach { (k, v) -> put(k, v) } })
         .put("artistGenres", JSONObject().apply { artistGenres.forEach { (k, v) -> put(k, v) } })
@@ -223,16 +277,28 @@ class YtStore(context: Context) {
             else mergedPlays[k] = YtPlay(cur.item, maxOf(cur.count, p.count), minOf(cur.firstAt, p.firstAt).takeIf { it > 0 } ?: maxOf(cur.firstAt, p.firstAt), maxOf(cur.lastAt, p.lastAt))
         }
         if (inPlays.isNotEmpty()) plays = mergedPlays
+        // playlist tue: nuove per id; se c'è già, si uniscono i brani
+        val inLists = playlistsOf(o.optJSONArray("playlists"))
+        var newLists = 0
+        if (inLists.isNotEmpty()) {
+            val cur = myPlaylists.associateBy { it.id }.toMutableMap()
+            for (n in inLists) {
+                val c = cur[n.id]
+                if (c == null) { cur[n.id] = n; newLists++ }
+                else cur[n.id] = c.copy(items = c.items + n.items.filter { i -> c.items.none { it.videoId == i.videoId } })
+            }
+            myPlaylists = (inLists.map { it.id } + myPlaylists.map { it.id }).distinct().mapNotNull { cur[it] }
+        }
         val inSkips = o.optJSONObject("skips")?.let { j -> j.keys().asSequence().associateWith { j.optInt(it) }.filterValues { it > 0 } }.orEmpty()
         if (inSkips.isNotEmpty()) skips = (skips.keys + inSkips.keys).associateWith { maxOf(skips[it] ?: 0, inSkips[it] ?: 0) }
         trackGenres = strMap(o.optJSONObject("trackGenres")) + trackGenres
         artistGenres = strMap(o.optJSONObject("artistGenres")) + artistGenres
-        if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) { save(); return newPlays + dis.size + inSkips.size }
+        if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) { save(); return newPlays + dis.size + inSkips.size + newLists }
         favorites = favorites + fav
         history = (history + his).take(300)
         saved = saved + sav
         save()
-        return fav.size + his.size + sav.size + newPlays
+        return fav.size + his.size + sav.size + newPlays + newLists
     }
 
     /** Scrive il file in coda su un thread dedicato: l'ordine è quello delle modifiche e il file non resta mai a metà. */

@@ -366,7 +366,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
     LaunchedEffect(env.settings.favArtists) { loadFavArtists() }
     LaunchedEffect(env.settings.favGenres, env.settings.favArtists, HomeUi.radios, env.app.ytStore.tasteVersion) { loadMix(); loadWeekly(); loadReleases() }
     LaunchedEffect(Unit) {
-        // gli artisti già scelti (Benvenuto o Impostazioni) devono essere anche in Libreria › Salvati
+        // gli artisti già scelti (Benvenuto o Impostazioni) devono essere anche in Raccolta › Salvati
         if (!env.settings.favArtistsSynced) {
             FavArtists.parse(env.settings.favArtists).forEach { env.app.ytStore.addSaved(it) }
             env.settings.favArtistsSynced = true

@@ -44,7 +44,7 @@ private enum class ResetKind(val title: String, val sub: String, val warning: St
     ),
     Downloads(
         "Elenco dei download", "File .sonara-downloads.json",
-        "L'app dimentica i brani scaricati e i loro gruppi. I file audio restano nella cartella, ma non si vedono più in Libreria.",
+        "L'app dimentica i brani scaricati e i loro gruppi. I file audio restano nella cartella, ma non si vedono più in Raccolta.",
         "Elenco dei download cancellato",
     ),
     All(
