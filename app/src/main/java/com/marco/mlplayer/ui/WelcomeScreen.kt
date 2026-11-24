@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
@@ -272,17 +273,17 @@ private fun GenresWelcomePage(env: AppEnv) = WelcomePage(
 @Composable
 private fun ArtistsWelcomePage(env: AppEnv) = WelcomePage(
     Icons.Filled.Person, "I tuoi artisti preferiti",
-    "Tocca gli artisti che ami (quelli proposti seguono i generi scelti) o cercane altri. Non è obbligatorio: vai avanti quando vuoi.",
+    "Tocca gli artisti che ami o cercane altri: man mano che scegli compaiono artisti simili, e i proposti seguono i generi scelti. Non è obbligatorio: vai avanti quando vuoi.",
 ) { ArtistPicker(env) }
 
 private class Sym(val icon: ImageVector, val title: String, val text: String)
 
 private val SYMBOLS = listOf(
-    Sym(Icons.Filled.ThumbUp, "Mi piace e non mi piace", "Insegnano all'app che musica proporti nei consigliati."),
-    Sym(Icons.Filled.Favorite, "Preferiti", "Il cuore salva il brano tra i tuoi preferiti."),
+    Sym(Icons.Filled.ThumbUp, "Mi piace e non mi piace", "Il pollice su salva il brano tra i preferiti e pesa di più nei consigliati; il pollice giù lo esclude. Si colorano quando li premi."),
     Sym(Icons.Filled.Download, "Scarica", "Salva il brano o la playlist nella cartella dei download."),
     Sym(Icons.Filled.DownloadDone, "Scaricato", "Il brano è sul telefono e suona anche senza internet."),
     Sym(Icons.Filled.MoreVert, "Altre azioni", "Il menu del brano: testo, radio, cambia sorgente, tag e altro."),
+    Sym(Icons.Filled.Radio, "Radio", "Su playlist, album e artisti: parte la musica simile. A fine coda la radio continua da sola (si spegne in Impostazioni › Riproduzione)."),
     Sym(Icons.Filled.Lyrics, "Testo", "Il testo sincronizzato, con fonti e traduzione."),
     Sym(Icons.AutoMirrored.Filled.QueueMusic, "Coda", "I brani che suoneranno dopo."),
     Sym(Icons.Filled.Timeline, "Analizzatore", "Spettro e livelli dell'audio in tempo reale."),

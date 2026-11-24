@@ -71,15 +71,30 @@ internal fun ArtistPicker(env: AppEnv) {
         loading = true
         val lists = withContext(Dispatchers.IO) {
             genres.map { g ->
-                runCatching { Yt.searchEntries(g.label, Yt.Kind.Artists, 1).take(8) }
+                runCatching { Yt.searchEntries(g.label, Yt.Kind.Artists, 1).take(20) }
                     .onFailure { AppLog.w("Artisti", "Proposte per «${g.label}» non riuscite: ${it.message}") }
                     .getOrDefault(emptyList())
             }
         }
         val mixed = ArrayList<Yt.Entry>()
         for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) for (l in lists) l.getOrNull(i)?.let { mixed.add(it) }
-        suggested = mixed.distinctBy { it.browseId }.take(24)
+        suggested = mixed.distinctBy { it.browseId }.take(60)   // tanti: quando ne scegli uno, ne compaiono altri al suo posto
         loading = false
+    }
+    // artisti simili a quelli scelti: appena ne scegli uno compaiono i suoi simili (anche senza generi)
+    val chosenIds = FavArtists.parse(s.favArtists).map { it.browseId }
+    var similar by remember { mutableStateOf<Map<String, List<Yt.Entry>>>(emptyMap()) }
+    LaunchedEffect(chosenIds) {
+        val todo = chosenIds.filter { it !in similar }
+        if (todo.isEmpty()) return@LaunchedEffect
+        val got = withContext(Dispatchers.IO) {
+            todo.associateWith { id ->
+                runCatching { com.marco.mlplayer.yt.YtApi.similarArtists(id) }
+                    .onFailure { AppLog.w("Artisti", "Simili non riusciti: ${it.message}") }
+                    .getOrDefault(emptyList())
+            }
+        }
+        similar = similar + got
     }
     suspend fun search() {
         val q = query.trim()
@@ -104,12 +119,18 @@ internal fun ArtistPicker(env: AppEnv) {
             Text("Scelti", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(bottom = 8.dp))
             ArtistGrid(env, chosen)
         }
-        val shown = (found ?: suggested).filter { e -> chosen.none { it.browseId == e.browseId } }
+        // prima i simili agli ultimi scelti (a turno), poi quelli dei generi
+        val fromChosen = ArrayList<Yt.Entry>().also { out ->
+            val lists = chosenIds.reversed().mapNotNull { similar[it] }
+            for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) for (l in lists) l.getOrNull(i)?.let { out.add(it) }
+        }
+        val shown = (found ?: (fromChosen + suggested)).filter { e -> chosen.none { it.browseId == e.browseId } }
+            .distinctBy { it.browseId }.take(30)
         if (searching || (found == null && loading)) {
             Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (shown.isNotEmpty()) {
             Text(
-                if (found != null) "Risultati" else "Proposti per te",
+                if (found != null) "Risultati" else if (fromChosen.isNotEmpty()) "Simili ai tuoi artisti e proposti per te" else "Proposti per te",
                 style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
             )
             ArtistGrid(env, shown)
@@ -160,7 +181,7 @@ fun ArtistsPage(env: AppEnv, onBack: (() -> Unit)?) {
     MLSettingsScaffold("Artisti preferiti", onBack) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(
-                "Tocca gli artisti che ami: la Home li mette in primo piano e propone artisti simili. I proposti seguono i tuoi generi preferiti.",
+                "Tocca gli artisti che ami: la Home li mette in primo piano e propone artisti simili. Man mano che scegli compaiono artisti simili a quelli scelti, oltre a quelli dei tuoi generi preferiti.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 12.dp),
             )
