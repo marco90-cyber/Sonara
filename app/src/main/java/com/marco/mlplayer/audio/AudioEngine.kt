@@ -20,6 +20,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.marco.mlplayer.yt.Yt
+import kotlinx.coroutines.launch
 import com.marco.mlplayer.yt.YtDataSource
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
@@ -329,6 +330,32 @@ class AudioEngine(
         playHandler.postDelayed(r, 30_000L)
     }
 
+    /** Brano di cui la radio è già stata chiesta (per non accodarla due volte). */
+    var radioFor: String? = null
+
+    /** Radio infinita: quando mancano 2 brani alla fine, accoda quelli che YouTube Music propone dopo l'ultimo. */
+    private fun maybeExtendRadio() {
+        val a = app as com.marco.mlplayer.MLPlayerApp
+        if (!a.settings.infiniteRadio || player.shuffleModeEnabled || player.repeatMode != Player.REPEAT_MODE_OFF) return
+        val t = currentTrack ?: return
+        if (queueSize - queueIndex > 2) return
+        val item = Yt.itemOf(t) ?: return
+        if (radioFor == item.videoId) return
+        radioFor = item.videoId
+        a.appScope.launch {
+            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { com.marco.mlplayer.yt.YtApi.radio(item.videoId) } }
+            r.onFailure { radioFor = null; AppLog.w("Radio", "Radio infinita non riuscita: ${it.message}") }
+            r.onSuccess { list ->
+                val have = queue.mapNotNull { Yt.itemOf(it)?.videoId }.toSet()
+                val st = a.ytStore
+                val bad = com.marco.mlplayer.yt.YtTaste.profile(st.plays, st.history, st.favorites, st.skips, st.dislikes).bad
+                val more = list.filter { it.videoId !in have && !bad(it) }.take(25)
+                AppLog.i("Radio", "Radio infinita da «${item.title}»: ${more.size} brani accodati")
+                more.forEach { addToQueue(Yt.toTrack(it)) }
+            }
+        }
+    }
+
     private fun updateCurrent() {
         val idx = player.currentMediaItemIndex
         val t = queue.getOrNull(idx)
@@ -340,6 +367,7 @@ class AudioEngine(
         }
         queueIndex = idx
         queueSize = queue.size
+        maybeExtendRadio()
         if (t != null && t.uri != prevUri) {
             Yt.itemOf(t)?.let { (app as com.marco.mlplayer.MLPlayerApp).ytStore.addHistory(it) }
             countPlayLater(t)

@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.QueueMusic
@@ -238,6 +239,9 @@ private fun CollectionView(
                     }
                     FilledTonalButton(onClick = { env.engine.playQueue(tracks.map { Yt.toTrack(it) }.shuffled(), 0); env.openNowPlaying() }) {
                         Icon(Icons.Filled.Shuffle, null); Spacer(Modifier.width(6.dp)); Text("Casuale")
+                    }
+                    FilledTonalButton(onClick = { env.playRadioFrom(tracks, title) }, enabled = tracks.isNotEmpty()) {
+                        Icon(Icons.Filled.Radio, null); Spacer(Modifier.width(6.dp)); Text("Radio")
                     }
                 if (bookmark != null) {
                     val gid = bookmark.browseId

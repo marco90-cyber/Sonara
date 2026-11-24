@@ -74,6 +74,14 @@ private object HomeUi {
     var genreChipShelves by mutableStateOf<List<YtApi.Shelf>?>(null)
     /** Mix quotidiano: uguale per tutta la giornata; si rifà se cambiano generi, artisti o gusti. */
     var mix by mutableStateOf<List<Yt.Item>>(emptyList())
+    /** Mix 1, 2, 3 (ognuno con artisti e generi diversi) e «Scopri settimanale». */
+    var mixes by mutableStateOf<List<ForYouMix>>(emptyList())
+    var weekly by mutableStateOf<ForYouMix?>(null)
+    var weeklyKey = ""
+    var weeklyLoading = false
+    /** «Novità per te»: uscite recenti dei tuoi artisti e di quelli simili. */
+    var releases by mutableStateOf<List<YtApi.Card>>(emptyList())
+    var releasesAt = 0L
     var mixKey = ""
     var mixLoading by mutableStateOf(false)
     var genres by mutableStateOf<List<Yt.Entry>>(emptyList())
@@ -257,22 +265,95 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
         val artists = FavArtists.parse(env.settings.favArtists).shuffled(java.util.Random(day)).take(4)
         val radios = HomeUi.radios
         env.app.appScope.launch {
+            // (nome, brani): il nome serve a descrivere ogni mix
             val pools = withContext(Dispatchers.IO) {
-                val l = ArrayList<List<Yt.Item>>()
-                l.addAll(radios.map { it.shuffled(java.util.Random(day)).take(20) })
-                for (a in artists) runCatching { YtApi.artist(a.browseId).tracks.take(15) }.onSuccess { l.add(it) }
+                val l = ArrayList<Pair<String, List<Yt.Item>>>()
+                for (r in radios) {
+                    val label = r.firstOrNull()?.artist?.let { YtTaste.artistNames(it).firstOrNull() ?: it }.orEmpty()
+                    l.add(label to r.shuffled(java.util.Random(day)).take(20))
+                }
+                for (a in artists) runCatching { YtApi.artist(a.browseId).tracks.take(15) }.onSuccess { l.add(a.title to it) }
                     .onFailure { AppLog.w("HomeFeed", "Mix: «${a.title}» non riuscito: ${it.message}") }
-                for (g in genres) runCatching { Yt.search(g.query, 1).take(15) }.onSuccess { YtGenres.noteOrigin(it, g.id); l.add(it) }
+                for (g in genres) runCatching { Yt.search(g.query, 1).take(15) }.onSuccess { YtGenres.noteOrigin(it, g.id); l.add(g.label to it) }
                     .onFailure { AppLog.w("HomeFeed", "Mix: «${g.label}» non riuscito: ${it.message}") }
-                l
+                l.filter { it.second.isNotEmpty() }
             }
-            val seen = HashSet<String>()
-            val out = ArrayList<Yt.Item>()
-            for (i in 0 until (pools.maxOfOrNull { it.size } ?: 0)) for (p in pools) p.getOrNull(i)?.let { if (!bad(it) && seen.add(it.videoId)) out.add(it) }
-            HomeUi.mix = out.take(40)
+            fun blend(ps: List<Pair<String, List<Yt.Item>>>, max: Int): List<Yt.Item> {
+                val seen = HashSet<String>()
+                val out = ArrayList<Yt.Item>()
+                for (i in 0 until (ps.maxOfOrNull { it.second.size } ?: 0)) for (p in ps) p.second.getOrNull(i)?.let { if (!bad(it) && seen.add(it.videoId)) out.add(it) }
+                return out.take(max)
+            }
+            val out = blend(pools, 40)
+            HomeUi.mix = out
+            // più mix al giorno: i gruppi di brani vanno a turno nei mix, così ognuno ha artisti e generi suoi
+            val k = if (pools.size >= 6) 3 else if (pools.size >= 4) 2 else 1
+            HomeUi.mixes = if (k < 2) emptyList() else (0 until k).mapNotNull { j ->
+                val ps = pools.filterIndexed { idx, _ -> idx % k == j }
+                val tracks = blend(ps, 30)
+                if (tracks.isEmpty()) null
+                else {
+                    val names = ps.map { it.first }.filter { it.isNotBlank() }.distinct()
+                    ForYouMix("Mix ${j + 1}", names.take(3).joinToString(", ") + if (names.size > 3) " e altri" else "", tracks)
+                }
+            }
             HomeUi.mixLoading = false
             // senza nulla in mano riprovo alla prossima apertura
             if (out.isNotEmpty()) HomeUi.mixKey = key
+        }
+    }
+
+    /** «Scopri settimanale»: brani nuovi per te (radio e artisti simili) che non hai ancora ascoltato; cambia ogni settimana. */
+    fun loadWeekly() {
+        val radios = HomeUi.radios
+        if (radios.isEmpty() || HomeUi.weeklyLoading) return
+        val week = System.currentTimeMillis() / (7 * 86_400_000L)
+        val key = "$week|${radios.size}"
+        if (key == HomeUi.weeklyKey) return
+        HomeUi.weeklyLoading = true
+        val st = env.app.ytStore
+        val prof = YtTaste.profile(st.plays, st.history, st.favorites, st.skips, st.dislikes)
+        val known = prof.weights.keys + st.history.map { it.videoId } + st.dislikes.map { it.videoId }
+        val similar = HomeUi.personal.firstOrNull { it.title == "Artisti simili" }?.cards?.mapNotNull { it.entry }.orEmpty().take(4)
+        env.app.appScope.launch {
+            val pools = withContext(Dispatchers.IO) {
+                val l = ArrayList<List<Yt.Item>>()
+                l.addAll(radios.map { r -> r.filter { it.videoId !in known } })
+                for (a in similar) runCatching { YtApi.artist(a.browseId).tracks.take(8).filter { it.videoId !in known } }
+                    .onSuccess { l.add(it) }.onFailure { AppLog.w("HomeFeed", "Settimanale: «${a.title}» non riuscito: ${it.message}") }
+                l
+            }
+            val rnd = java.util.Random(week)
+            val seen = HashSet<String>()
+            val out = ArrayList<Yt.Item>()
+            val shuffled = pools.map { it.shuffled(rnd) }
+            for (i in 0 until (shuffled.maxOfOrNull { it.size } ?: 0)) for (p in shuffled) p.getOrNull(i)?.let { if (!prof.bad(it) && seen.add(it.videoId)) out.add(it) }
+            val tracks = out.take(30)
+            HomeUi.weekly = if (tracks.isEmpty()) null else ForYouMix("Scopri settimanale", "${tracks.size} brani nuovi, cambia ogni settimana", tracks)
+            HomeUi.weeklyLoading = false
+            if (tracks.isNotEmpty()) HomeUi.weeklyKey = key
+        }
+    }
+
+    /** «Novità per te»: tra le nuove uscite di YouTube Music, quelle dei tuoi artisti e degli artisti simili. */
+    fun loadReleases() {
+        if (System.currentTimeMillis() - HomeUi.releasesAt < 6 * 3600_000L) return
+        val st = env.app.ytStore
+        val prof = YtTaste.profile(st.plays, st.history, st.favorites, st.skips, st.dislikes)
+        val mine = YtTaste.topArtists(prof.weights, 15).map { it.first } +
+            FavArtists.parse(env.settings.favArtists).map { it.title } +
+            HomeUi.personal.flatMap { sh -> if (sh.title == "Artisti simili") sh.cards.mapNotNull { it.entry?.title } else emptyList() }
+        val names = mine.map { YtTaste.norm(it) }.filter { it.length > 1 }.toSet()
+        if (names.isEmpty()) return
+        HomeUi.releasesAt = System.currentTimeMillis()
+        env.app.appScope.launch {
+            val shelf = withContext(Dispatchers.IO) { runCatching { YtApi.newReleases() }.getOrNull() }
+            val cards = shelf?.cards.orEmpty().filter { c ->
+                val sub = YtTaste.norm(c.subtitle)
+                names.any { n -> sub.contains(n) }
+            }
+            HomeUi.releases = cards
+            if (shelf == null) HomeUi.releasesAt = 0L   // riprovo alla prossima apertura
         }
     }
     // classifiche di Spotify e Deezer del paese scelto (in cache per 6 ore)
@@ -283,7 +364,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
     }
     LaunchedEffect(env.settings.favGenres, env.app.ytStore.tasteVersion) { loadGenres() }
     LaunchedEffect(env.settings.favArtists) { loadFavArtists() }
-    LaunchedEffect(env.settings.favGenres, env.settings.favArtists, HomeUi.radios, env.app.ytStore.tasteVersion) { loadMix() }
+    LaunchedEffect(env.settings.favGenres, env.settings.favArtists, HomeUi.radios, env.app.ytStore.tasteVersion) { loadMix(); loadWeekly(); loadReleases() }
     LaunchedEffect(Unit) {
         loadExplore()
         if (!HomeUi.loading && HomeUi.shelves == null) load()
@@ -351,6 +432,9 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             item(key = "mix") {
                 MixBanner(env, HomeUi.mix, HomeUi.mixLoading) { env.settingsNav.push(GenresScreen); env.tab = Tab.Settings }
             }
+            val forYou = HomeUi.mixes + listOfNotNull(HomeUi.weekly)
+            if (forYou.isNotEmpty()) item(key = "foryou") { ForYouRow(env, forYou) }
+            if (HomeUi.releases.isNotEmpty()) item(key = "releases") { ShelfRow("Novità per te", HomeUi.releases, env, open) }
             if (recent.isNotEmpty()) item(key = "recent") {
                 ShelfRow("Ascoltati di recente", recent.map { YtApi.Card(it, null) }, env, open)
             }

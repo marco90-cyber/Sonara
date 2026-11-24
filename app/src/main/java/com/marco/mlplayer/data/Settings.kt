@@ -181,6 +181,8 @@ class Settings(context: Context) {
     // Correzione brani
     /** Cambia da sola la sorgente dei brani con la durata fuori misura (altro brano, videoclip più lungo). */
     var autoFix by BoolPref(sp, "auto_fix", false)
+    /** Quando la coda sta per finire, accoda altri brani simili dalla radio di YouTube Music. */
+    var infiniteRadio by BoolPref(sp, "infinite_radio", true)
 
     // Playlist importate
     /** Controlla ogni tanto se le playlist importate sono cambiate sul servizio di origine. */

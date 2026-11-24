@@ -107,6 +107,41 @@ internal fun MixBanner(env: AppEnv, mix: List<Yt.Item>, loading: Boolean, onChoo
     }
 }
 
+/** Un mix pronto da ascoltare (Mix 1, 2, 3, Scopri settimanale). */
+class ForYouMix(val title: String, val subtitle: String, val tracks: List<Yt.Item>)
+
+/** «I tuoi mix»: schede in fila con la copertina del primo brano; il tocco avvia il mix. */
+@Composable
+internal fun ForYouRow(env: AppEnv, mixes: List<ForYouMix>) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.padding(top = 12.dp)) {
+        Text(
+            "I tuoi mix", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+        ) {
+            items(mixes.size) { i ->
+                val m = mixes[i]
+                Column(Modifier.width(150.dp).clickable { env.feedback.tapScreen(); env.playFrom(m.tracks.map { Yt.toTrack(it) }, 0) }) {
+                    Box(Modifier.size(150.dp).clip(RoundedCornerShape(20.dp)).background(cs.primaryContainer)) {
+                        val covers = m.tracks.take(4).map { it.cover }
+                        if (covers.isNotEmpty()) AsyncImage(covers.first(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        Box(
+                            Modifier.align(Alignment.BottomEnd).padding(8.dp).size(36.dp).clip(CircleShape).background(cs.surface.copy(alpha = 0.9f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Filled.PlayArrow, contentDescription = "Ascolta ${m.title}", tint = cs.primary) }
+                    }
+                    Text(m.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                    Text(m.subtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
 /** Fa partire una playlist di YouTube subito; quelle di Spotify e Deezer si aprono (e si importano). */
 internal fun playPlaylistNow(env: AppEnv, e: Yt.Entry, onOpen: (Yt.Entry) -> Unit) {
     if (PlaylistImport.refOf(e.browseId) != null) { onOpen(e); return }

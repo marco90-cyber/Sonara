@@ -245,6 +245,10 @@ fun AppEnv.playbackScreen(): MenuScreen = MenuScreen("Riproduzione") {
             "Uscita diretta", settings.directOutput,
             sub = "Senza DAC USB: AudioTrack 24 bit alla frequenza del brano su uscita DIRECT, o AAudio esclusiva · il ricampionamento resta a soxr · dal prossimo brano"
         ) { engine.outputs.setDirectOutput(it) },
+        toggleItem(
+            "Radio infinita", settings.infiniteRadio,
+            sub = "Quando la coda sta finendo, accoda brani simili da YouTube Music (non con Casuale o Ripeti)"
+        ) { settings.infiniteRadio = it },
         MenuItem("Equalizzatore", chevron = true) { tab = Tab.Eq },
     )
 }

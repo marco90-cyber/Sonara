@@ -292,6 +292,7 @@ class AppEnv(val app: MLPlayerApp) {
     /** Suona il brano subito e, appena pronta, accoda la radio di YouTube Music che segue. */
     fun playWithRadio(item: com.marco.mlplayer.yt.Yt.Item) {
         val seed = com.marco.mlplayer.yt.Yt.toTrack(item)
+        engine.radioFor = item.videoId   // la radio la accodo io: la radio infinita non deve farlo di nuovo
         engine.playQueue(listOf(seed), 0)
         openNowPlaying()
         app.appScope.launch {
@@ -306,6 +307,31 @@ class AppEnv(val app: MLPlayerApp) {
                 AppLog.e("YouTube", "Radio non riuscita", it)
                 message = "Radio non riuscita (dettagli nel log)"
             }
+        }
+    }
+
+    /** Radio da una playlist, un album o un artista: parte il primo brano e si accodano i simili ai suoi (e a 2 altri a caso). */
+    fun playRadioFrom(items: List<com.marco.mlplayer.yt.Yt.Item>, name: String) {
+        if (items.isEmpty()) return
+        val seeds = listOf(items.first()) + items.drop(1).shuffled().take(2)
+        val seed = com.marco.mlplayer.yt.Yt.toTrack(seeds.first())
+        engine.radioFor = seeds.first().videoId
+        engine.playQueue(listOf(seed), 0)
+        openNowPlaying()
+        message = "Preparo la radio di «$name»…"
+        app.appScope.launch {
+            val lists = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                seeds.map { s -> runCatching { com.marco.mlplayer.yt.YtApi.radio(s.videoId) }.getOrDefault(emptyList()) }
+            }
+            if (engine.currentTrack?.id != seed.id) return@launch   // nel frattempo hai cambiato brano
+            val st = app.ytStore
+            val bad = com.marco.mlplayer.yt.YtTaste.profile(st.plays, st.history, st.favorites, st.skips, st.dislikes).bad
+            val seen = HashSet<String>().apply { add(seeds.first().videoId) }
+            val out = ArrayList<com.marco.mlplayer.yt.Yt.Item>()
+            for (i in 0 until (lists.maxOfOrNull { it.size } ?: 0)) for (l in lists) l.getOrNull(i)?.let { if (!bad(it) && seen.add(it.videoId)) out.add(it) }
+            if (out.isEmpty()) { message = "Radio non riuscita (dettagli nel log)"; return@launch }
+            out.forEach { engine.addToQueue(com.marco.mlplayer.yt.Yt.toTrack(it)) }
+            message = "Radio avviata: ${out.size} brani in coda"
         }
     }
 
