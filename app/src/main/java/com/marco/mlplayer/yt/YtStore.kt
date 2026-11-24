@@ -36,6 +36,16 @@ class YtStore(context: Context) {
     var plays by mutableStateOf(emptyMap<String, YtPlay>())
         private set
 
+    /** Salti entro 30 secondi per brano (chiave: id video): pesano -0,5 l'uno, fino a -1. */
+    var skips by mutableStateOf(emptyMap<String, Int>())
+        private set
+    /** Genere (id di [FavGenres]) dei brani dove l'origine è nota, per id video. */
+    var trackGenres by mutableStateOf(emptyMap<String, String>())
+        private set
+    /** Genere per artista (nome normalizzato -> id di [FavGenres], vuoto se sconosciuto), ricavato da Deezer. */
+    var artistGenres by mutableStateOf(emptyMap<String, String>())
+        private set
+
     init {
         runCatching {
             if (file.exists()) {
@@ -45,6 +55,9 @@ class YtStore(context: Context) {
                 saved = entries(o.optJSONArray("saved"))
                 plays = playsOf(o.optJSONArray("plays"))
                 dislikes = items(o.optJSONArray("dislikes"))
+                skips = o.optJSONObject("skips")?.let { j -> j.keys().asSequence().associateWith { j.optInt(it) }.filterValues { it > 0 } } ?: emptyMap()
+                trackGenres = strMap(o.optJSONObject("trackGenres"))
+                artistGenres = strMap(o.optJSONObject("artistGenres"))
                 searches = o.optJSONArray("searches")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
             }
         }.onFailure { AppLog.e("YouTube", "Lettura preferiti non riuscita", it) }
@@ -66,6 +79,7 @@ class YtStore(context: Context) {
         val now = !isFavorite(item.videoId)
         favorites = if (now) listOf(item) + favorites else favorites.filter { it.videoId != item.videoId }
         if (now) dislikes = dislikes.filter { it.videoId != item.videoId }
+        noteGenre(item.videoId)
         tasteVersion++
         save()
         return now
@@ -78,6 +92,7 @@ class YtStore(context: Context) {
         val now = !isDisliked(item.videoId)
         dislikes = if (now) listOf(item) + dislikes.filter { it.videoId != item.videoId } else dislikes.filter { it.videoId != item.videoId }
         if (now) favorites = favorites.filter { it.videoId != item.videoId }
+        noteGenre(item.videoId)
         tasteVersion++
         save()
         return now
@@ -97,6 +112,33 @@ class YtStore(context: Context) {
         var m = plays + (item.videoId to next)
         if (m.size > 2000) m = m.values.sortedByDescending { it.lastAt }.take(2000).associateBy { it.item.videoId }
         plays = m
+        noteGenre(item.videoId)
+        save()
+    }
+
+    /** Un salto manuale entro 30 secondi dall'inizio del brano. */
+    @Synchronized
+    fun recordSkip(item: Yt.Item) {
+        skips = skips + (item.videoId to ((skips[item.videoId] ?: 0) + 1).coerceAtMost(50))
+        noteGenre(item.videoId)
+        tasteVersion++
+        save()
+    }
+
+    /** Se il brano è arrivato da uno scaffale di un genere (vedi [YtGenres.noteOrigin]) ricorda quel genere. */
+    private fun noteGenre(videoId: String) {
+        val g = YtGenres.originOf(videoId) ?: return
+        if (trackGenres[videoId] == g) return
+        var m = trackGenres + (videoId to g)
+        if (m.size > 2000) m = m.entries.drop(m.size - 2000).associate { it.key to it.value }
+        trackGenres = m
+    }
+
+    /** Aggiunge i generi di artisti appena ricavati da Deezer. */
+    @Synchronized
+    fun addArtistGenres(more: Map<String, String>) {
+        if (more.isEmpty()) return
+        artistGenres = artistGenres + more
         save()
     }
 
@@ -104,6 +146,7 @@ class YtStore(context: Context) {
     fun clearAll() {
         favorites = emptyList(); saved = emptyList(); history = emptyList()
         searches = emptyList(); plays = emptyMap(); dislikes = emptyList()
+        skips = emptyMap(); trackGenres = emptyMap()
         tasteVersion++
         save()
     }
@@ -111,6 +154,7 @@ class YtStore(context: Context) {
     fun clearHistory() {
         history = emptyList()
         plays = emptyMap()
+        skips = emptyMap()
         save()
     }
 
@@ -135,6 +179,9 @@ class YtStore(context: Context) {
         return m
     }
 
+    private fun strMap(o: JSONObject?): Map<String, String> =
+        o?.let { j -> j.keys().asSequence().associateWith { j.optString(it) } } ?: emptyMap()
+
     private fun entries(a: JSONArray?): List<Yt.Entry> =
         if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let { o -> Yt.Entry.fromJson(o) } }
 
@@ -144,6 +191,9 @@ class YtStore(context: Context) {
         .put("searches", JSONArray(searches))
         .put("saved", JSONArray().apply { saved.forEach { put(it.toJson()) } })
         .put("dislikes", JSONArray().apply { dislikes.forEach { put(it.toJson()) } })
+        .put("skips", JSONObject().apply { skips.forEach { (k, v) -> put(k, v) } })
+        .put("trackGenres", JSONObject().apply { trackGenres.forEach { (k, v) -> put(k, v) } })
+        .put("artistGenres", JSONObject().apply { artistGenres.forEach { (k, v) -> put(k, v) } })
         .put("plays", JSONArray().apply {
             plays.values.forEach { put(it.item.toJson().put("n", it.count).put("first", it.firstAt).put("last", it.lastAt)) }
         })
@@ -166,7 +216,11 @@ class YtStore(context: Context) {
             else mergedPlays[k] = YtPlay(cur.item, maxOf(cur.count, p.count), minOf(cur.firstAt, p.firstAt).takeIf { it > 0 } ?: maxOf(cur.firstAt, p.firstAt), maxOf(cur.lastAt, p.lastAt))
         }
         if (inPlays.isNotEmpty()) plays = mergedPlays
-        if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) { if (newPlays > 0 || dis.isNotEmpty()) save(); return newPlays + dis.size }
+        val inSkips = o.optJSONObject("skips")?.let { j -> j.keys().asSequence().associateWith { j.optInt(it) }.filterValues { it > 0 } }.orEmpty()
+        if (inSkips.isNotEmpty()) skips = (skips.keys + inSkips.keys).associateWith { maxOf(skips[it] ?: 0, inSkips[it] ?: 0) }
+        trackGenres = strMap(o.optJSONObject("trackGenres")) + trackGenres
+        artistGenres = strMap(o.optJSONObject("artistGenres")) + artistGenres
+        if (fav.isEmpty() && his.isEmpty() && sav.isEmpty()) { save(); return newPlays + dis.size + inSkips.size }
         favorites = favorites + fav
         history = (history + his).take(300)
         saved = saved + sav

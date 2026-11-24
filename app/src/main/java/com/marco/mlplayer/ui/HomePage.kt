@@ -55,6 +55,7 @@ import com.marco.mlplayer.yt.FavArtists
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtFeed
+import com.marco.mlplayer.yt.YtGenres
 import com.marco.mlplayer.yt.YtTaste
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -134,32 +135,20 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
             }
         }
     }
-    fun loadPersonal(force: Boolean) {
-        if (HomeUi.personalLoading) return
-        if (!force && System.currentTimeMillis() - HomeUi.personalAt < 6 * 3600_000L) return
-        val st = env.app.ytStore
-        val bad = YtTaste.excluder(st.dislikes)
-        val w = YtTaste.weights(st.plays, st.history, st.favorites).filterValues { !bad(it.first) }
-        if (w.isEmpty()) return
-        HomeUi.personalLoading = true
-        HomeUi.version = st.tasteVersion
-        if (force) HomeUi.personal = emptyList()
-        env.app.appScope.launch {
-            val r = withContext(Dispatchers.IO) {
-                runCatching { YtFeed.build(w, bad) { sh -> HomeUi.personal = (HomeUi.personal.filter { it.title != sh.title } + sh) } }
-            }
-            HomeUi.personalLoading = false
-            r.onSuccess { HomeUi.radios = it.radios; HomeUi.personalAt = System.currentTimeMillis() }
-                .onFailure { AppLog.e("YouTube", "Suggerimenti personali non riusciti", it) }
-        }
-    }
     fun loadGenres() {
-        val picked = FavGenres.parse(env.settings.favGenres)
-        if (picked.isEmpty()) { HomeUi.genreShelves = emptyList(); HomeUi.genreKey = ""; return }
-        // pochi ascolti: i generi guidano la Home (fino a 6 scaffali); con più ascolti ne bastano 2, a rotazione ogni giorno
-        val n = if (env.app.ytStore.plays.size < 15) 6 else 2
+        val st = env.app.ytStore
+        val prof = YtTaste.profile(st.plays, st.history, st.favorites, st.skips, st.dislikes)
+        val scores = YtTaste.genreScores(prof) { YtGenres.genreOf(it, st) }
+        // i generi scelti da te, tranne quelli col punteggio negativo; in più i 2 con più punti che non hai scelto (almeno 3)
+        val picked = FavGenres.parse(env.settings.favGenres).filter { (scores[it.id] ?: 0.0) >= 0.0 }
+        val extra = FavGenres.ALL.filter { g -> picked.none { it.id == g.id } && (scores[g.id] ?: 0.0) >= 3.0 }
+            .sortedByDescending { scores[it.id] }.take(2)
+        val all = picked + extra
+        if (all.isEmpty()) { HomeUi.genreShelves = emptyList(); HomeUi.genreKey = ""; return }
+        // pochi ascolti: i generi guidano la Home (fino a 6 scaffali); con più ascolti ne bastano 2. In cima quelli con più punti, a pari punti a rotazione ogni giorno
+        val n = if (st.plays.size < 15) 6 else 2
         val day = System.currentTimeMillis() / 86_400_000L
-        val use = picked.shuffled(java.util.Random(day)).take(n)
+        val use = all.shuffled(java.util.Random(day)).sortedByDescending { scores[it.id] ?: 0.0 }.take(n)
         val key = use.joinToString(",") { it.id }
         if (key == HomeUi.genreKey && System.currentTimeMillis() - HomeUi.genreAt < 6 * 3600_000L) return
         HomeUi.genreKey = key
@@ -177,6 +166,29 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                 }
                 if (key == HomeUi.genreKey && HomeUi.genreShelves.isEmpty()) HomeUi.genreKey = ""   // riprovo alla prossima apertura
             }
+        }
+    }
+    fun loadPersonal(force: Boolean) {
+        if (HomeUi.personalLoading) return
+        if (!force && System.currentTimeMillis() - HomeUi.personalAt < 6 * 3600_000L) return
+        val st = env.app.ytStore
+        val prof = YtTaste.profile(st.plays, st.history, st.favorites, st.skips, st.dislikes)
+        val bad = prof.bad
+        val w = prof.weights.filterValues { !bad(it.first) }
+        if (w.isEmpty()) return
+        HomeUi.personalLoading = true
+        HomeUi.version = st.tasteVersion
+        if (force) HomeUi.personal = emptyList()
+        env.app.appScope.launch {
+            // il genere degli artisti che ascolti di più (da Deezer, ricordato): serve ai punteggi dei generi
+            withContext(Dispatchers.IO) { runCatching { YtGenres.fetchMissing(st, YtTaste.topArtists(w, 15).map { it.first }) } }
+            loadGenres()
+            val r = withContext(Dispatchers.IO) {
+                runCatching { YtFeed.build(w, bad) { sh -> HomeUi.personal = (HomeUi.personal.filter { it.title != sh.title } + sh) } }
+            }
+            HomeUi.personalLoading = false
+            r.onSuccess { HomeUi.radios = it.radios; HomeUi.personalAt = System.currentTimeMillis() }
+                .onFailure { AppLog.e("YouTube", "Suggerimenti personali non riusciti", it) }
         }
     }
     fun loadFavArtists() {
@@ -222,7 +234,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
         env.app.appScope.launch {
             val out = withContext(Dispatchers.IO) {
                 val l = ArrayList<YtApi.Shelf>()
-                runCatching { Yt.search(g.query, 1).take(15) }.onSuccess { if (it.isNotEmpty()) l.add(YtApi.Shelf("Brani · ${g.label}", it.map { i -> YtApi.Card(i, null) })) }
+                runCatching { Yt.search(g.query, 1).take(15) }.onSuccess { YtGenres.noteOrigin(it, g.id); if (it.isNotEmpty()) l.add(YtApi.Shelf("Brani · ${g.label}", it.map { i -> YtApi.Card(i, null) })) }
                     .onFailure { AppLog.w("HomeFeed", "Brani di «${g.label}» non riusciti: ${it.message}") }
                 runCatching { Yt.searchEntries(g.query, Yt.Kind.Playlists, 1).take(12) }.onSuccess { if (it.isNotEmpty()) l.add(YtApi.Shelf("Playlist · ${g.label}", it.map { e -> YtApi.Card(null, e) })) }
                     .onFailure { AppLog.w("HomeFeed", "Playlist di «${g.label}» non riuscite: ${it.message}") }
@@ -240,7 +252,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
         val key = "$day|${env.settings.favGenres}|${env.settings.favArtists}|${HomeUi.radios.sumOf { it.size }}|${st.tasteVersion}"
         if (key == HomeUi.mixKey || HomeUi.mixLoading) return
         HomeUi.mixLoading = true
-        val bad = YtTaste.excluder(st.dislikes)
+        val bad = YtTaste.profile(st.plays, st.history, st.favorites, st.skips, st.dislikes).bad
         val genres = FavGenres.parse(env.settings.favGenres).shuffled(java.util.Random(day)).take(3)
         val artists = FavArtists.parse(env.settings.favArtists).shuffled(java.util.Random(day)).take(4)
         val radios = HomeUi.radios
@@ -250,7 +262,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
                 l.addAll(radios.map { it.shuffled(java.util.Random(day)).take(20) })
                 for (a in artists) runCatching { YtApi.artist(a.browseId).tracks.take(15) }.onSuccess { l.add(it) }
                     .onFailure { AppLog.w("HomeFeed", "Mix: «${a.title}» non riuscito: ${it.message}") }
-                for (g in genres) runCatching { Yt.search(g.query, 1).take(15) }.onSuccess { l.add(it) }
+                for (g in genres) runCatching { Yt.search(g.query, 1).take(15) }.onSuccess { YtGenres.noteOrigin(it, g.id); l.add(it) }
                     .onFailure { AppLog.w("HomeFeed", "Mix: «${g.label}» non riuscito: ${it.message}") }
                 l
             }
@@ -269,7 +281,7 @@ private fun HomeContent(env: AppEnv, open: (Yt.Entry) -> Unit, search: (String) 
         withContext(Dispatchers.IO) { Featured.load(c) { part -> HomeUi.featured = part } }
             .let { HomeUi.featured = it }
     }
-    LaunchedEffect(env.settings.favGenres) { loadGenres() }
+    LaunchedEffect(env.settings.favGenres, env.app.ytStore.tasteVersion) { loadGenres() }
     LaunchedEffect(env.settings.favArtists) { loadFavArtists() }
     LaunchedEffect(env.settings.favGenres, env.settings.favArtists, HomeUi.radios, env.app.ytStore.tasteVersion) { loadMix() }
     LaunchedEffect(Unit) {

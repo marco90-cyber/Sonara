@@ -30,6 +30,10 @@ interface Actions {
     fun pickDownloadFolder()
     fun openUrl(url: String)
     fun shareLog()
+    /** Crea il file con tutti i dati e lo condivide. */
+    fun exportData()
+    /** Fa scegliere il file di un altro telefono e lo importa (poi l'app riparte). */
+    fun importData()
     /** Chiede di nuovo la cartella [tree] con il permesso di scrittura (per tag, copertine e testi). */
     fun requestWriteAccess(tree: String)
     fun shareText(text: String, subject: String)

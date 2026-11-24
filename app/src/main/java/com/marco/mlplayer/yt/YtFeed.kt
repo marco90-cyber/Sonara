@@ -11,7 +11,7 @@ object YtFeed {
     class Result(val shelves: List<YtApi.Shelf>, val radios: List<List<Yt.Item>>)
 
     /** Da chiamare fuori dal thread principale. [onShelf] riceve gli scaffali man mano che arrivano. */
-    fun build(w: Map<String, Pair<Yt.Item, Int>>, bad: (Yt.Item) -> Boolean, onShelf: (YtApi.Shelf) -> Unit): Result {
+    fun build(w: Map<String, Pair<Yt.Item, Double>>, bad: (Yt.Item) -> Boolean, onShelf: (YtApi.Shelf) -> Unit): Result {
         val shelves = ArrayList<YtApi.Shelf>()
         val radios = ArrayList<List<Yt.Item>>()
         fun add(s: YtApi.Shelf) { shelves.add(s); onShelf(s) }

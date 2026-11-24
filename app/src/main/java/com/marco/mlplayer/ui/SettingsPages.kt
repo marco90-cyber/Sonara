@@ -3,6 +3,7 @@ package com.marco.mlplayer.ui
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -45,6 +46,8 @@ fun SettingsHome(env: AppEnv) {
         env.feedback.tapScreen()
         nav.push(screen)
     }
+    var transfer by remember { mutableStateOf(false) }
+    if (transfer) TransferDialog(env) { transfer = false }
     MLSettingsScaffold("Impostazioni", onBack = null) {
         MLGroup {
             MLNavRow("Aspetto", "Tema, colori, VU meter", icon = Icons.Filled.Palette) { go(AppearanceScreen) }
@@ -122,6 +125,13 @@ fun SettingsHome(env: AppEnv) {
                     ?: "Non impostata: scegli dove salvare i brani offline",
                 icon = Icons.Filled.Download,
             ) { env.actions?.pickDownloadFolder() }
+        }
+        MLGroup("Cambio telefono") {
+            MLNavRow(
+                "Esporta e importa",
+                "Libreria, gusti, playlist e impostazioni in un solo file",
+                icon = Icons.Filled.SwapHoriz,
+            ) { transfer = true }
         }
         MLGroup("Playlist importate") {
             MLSwitchRow(
@@ -216,4 +226,30 @@ fun AppearancePage(env: AppEnv, onBack: (() -> Unit)?) {
             }
         }
     }
+}
+
+
+/** Esporta (crea un file e lo condivide) o importa (sceglie il file di un altro telefono): una sola voce nelle impostazioni. */
+@Composable
+internal fun TransferDialog(env: AppEnv, onDismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { androidx.compose.material3.Text("Esporta e importa") },
+        text = {
+            androidx.compose.material3.Text(
+                "Il file contiene libreria, preferiti, gusti, playlist importate, sorgenti cambiate e impostazioni. " +
+                    "I brani scaricati non ci sono: si ritrovano scegliendo la stessa cartella dei download."
+            )
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { onDismiss(); env.actions?.exportData() }) {
+                androidx.compose.material3.Text("Esporta")
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = { onDismiss(); env.actions?.importData() }) {
+                androidx.compose.material3.Text("Importa")
+            }
+        },
+    )
 }

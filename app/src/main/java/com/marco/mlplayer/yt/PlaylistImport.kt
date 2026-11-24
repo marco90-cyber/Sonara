@@ -94,6 +94,33 @@ object PlaylistImport {
         deezerEntries(getJson(url.toString()).optJSONArray("data"))
     }.onFailure { AppLog.w(TAG, "Ricerca Deezer non riuscita: ${it.message}") }.getOrDefault(emptyList())
 
+    /**
+     * I nomi dei generi degli album di un artista di Deezer (uno per album), cercandolo per nome.
+     * Prende il primo risultato solo se il nome combacia. Null se non trovato o non raggiungibile. Bloccante.
+     */
+    fun deezerArtistGenres(name: String): List<String>? {
+        val q = "https://api.deezer.com/search/artist".toHttpUrl().newBuilder().addQueryParameter("q", name).addQueryParameter("limit", "5").build()
+        val key = YtTaste.norm(name)
+        val artist = getJson(q.toString()).optJSONArray("data")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }
+            ?.firstOrNull { YtTaste.norm(it.optString("name")) == key } ?: return null
+        val albums = getJson("https://api.deezer.com/artist/${artist.optLong("id")}/albums?limit=25").optJSONArray("data") ?: return null
+        val ids = (0 until albums.length()).mapNotNull { albums.optJSONObject(it)?.optInt("genre_id", -1)?.takeIf { g -> g > 0 } }
+        if (ids.isEmpty()) return null
+        val names = deezerGenreNames()
+        return ids.mapNotNull { names[it] }.takeIf { it.isNotEmpty() }
+    }
+
+    @Volatile private var genreNames: Map<Int, String>? = null
+    private fun deezerGenreNames(): Map<Int, String> = genreNames ?: synchronized(this) {
+        genreNames ?: run {
+            val a = getJson("https://api.deezer.com/genre").optJSONArray("data")
+            val m = HashMap<Int, String>()
+            if (a != null) for (i in 0 until a.length()) a.optJSONObject(i)?.let { m[it.optInt("id")] = it.optString("name") }
+            if (m.isNotEmpty()) genreNames = m
+            m
+        }
+    }
+
     /** Le playlist più ascoltate su Deezer in questo momento (classifica mondiale delle playlist). Vuoto se non raggiungibile. */
     fun deezerCharts(limit: Int = 8): List<Yt.Entry> = runCatching {
         deezerEntries(getJson("https://api.deezer.com/chart/0/playlists?limit=$limit").optJSONArray("data"))

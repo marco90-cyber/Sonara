@@ -91,6 +91,26 @@ class Settings(context: Context) {
     private val sp: SharedPreferences =
         context.applicationContext.getSharedPreferences("mlplayer_settings", Context.MODE_PRIVATE)
 
+    /** Le impostazioni da portare su un altro telefono (senza cartelle e percorsi, che lì non esistono). */
+    fun exportPrefs(): org.json.JSONObject = org.json.JSONObject().also { o ->
+        for ((k, v) in sp.all) if (k !in NOT_PORTABLE && v != null) o.put(k, v)
+    }
+
+    /** Scrive le impostazioni di un altro telefono. Serve riavviare l'app perché abbiano effetto. */
+    fun importPrefs(o: org.json.JSONObject) {
+        val e = sp.edit()
+        for (k in o.keys()) {
+            if (k in NOT_PORTABLE || k !in PrefRegistry.all) continue
+            when (val v = o.get(k)) {
+                is Boolean -> e.putBoolean(k, v)
+                is Int -> e.putInt(k, v)
+                is Double -> e.putFloat(k, v.toFloat())
+                is String -> e.putString(k, v)
+            }
+        }
+        e.commit()
+    }
+
     // Aspetto (tema chiaro/scuro, colori e interruttori sono in MLThemeSettings)
     /** Colori dell'app presi dalla copertina del brano in riproduzione. */
     var coverColors by BoolPref(sp, "cover_colors", true)
@@ -281,3 +301,5 @@ class Settings(context: Context) {
     }
 
 }
+
+private val NOT_PORTABLE = setOf("folders", "download_dir", "onboarding_done")

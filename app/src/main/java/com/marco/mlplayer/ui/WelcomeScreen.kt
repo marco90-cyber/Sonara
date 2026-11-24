@@ -63,7 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import com.marco.mlplayer.data.Region
 
-private const val PAGES = 8
+private const val PAGES = 9
 
 /**
  * Benvenuto: poche pagine per sistemare le cose importanti (notifiche, cartella dei download, correzione dei brani,
@@ -88,12 +88,13 @@ fun WelcomeScreen(env: AppEnv) {
                 Crossfade(targetState = page, label = "benvenuto") { p ->
                     when (p) {
                         0 -> IntroPage()
-                        1 -> NotificationsPage(env)
-                        2 -> FolderPage(env)
-                        3 -> AutoFixPage(env)
-                        4 -> CountryPage(env)
-                        5 -> GenresWelcomePage(env)
-                        6 -> ArtistsWelcomePage(env)
+                        1 -> ImportWelcomePage(env)
+                        2 -> NotificationsPage(env)
+                        3 -> FolderPage(env)
+                        4 -> AutoFixPage(env)
+                        5 -> CountryPage(env)
+                        6 -> GenresWelcomePage(env)
+                        7 -> ArtistsWelcomePage(env)
                         else -> LegendPage()
                     }
                 }
@@ -148,6 +149,15 @@ private fun IntroPage() = WelcomePage(
 )
 
 @Composable
+private fun ImportWelcomePage(env: AppEnv) = WelcomePage(
+    Icons.Filled.SwapHoriz, "Vieni da un altro telefono?",
+    "Se hai già usato Sonara, importa qui il file di backup (Impostazioni → Esporta e importa, sul vecchio telefono): ritrovi libreria, preferiti, gusti, playlist importate e impostazioni.\n\n" +
+        "I brani scaricati si ritrovano scegliendo la stessa cartella dei download, nella pagina dopo. Se è la tua prima volta, vai avanti.",
+) {
+    Button(onClick = { env.actions?.importData() }) { Text("Importa un backup") }
+}
+
+@Composable
 private fun NotificationsPage(env: AppEnv) {
     val ctx = LocalContext.current
     val enabled = remember(env.permissionTick) { NotificationManagerCompat.from(ctx).areNotificationsEnabled() }
@@ -184,7 +194,7 @@ private fun FolderPage(env: AppEnv) {
     WelcomePage(
         Icons.Filled.Folder, "Cartella dei download",
         "Scegli dove salvare i brani scaricati: si ascoltano anche senza internet.\n\n" +
-            "Nella stessa cartella tengo una copia di riserva di preferiti, playlist e sorgenti cambiate, così se reinstalli l'app ritrovi tutto.",
+            "Nella stessa cartella tengo una copia di riserva di preferiti, gusti, playlist e sorgenti cambiate, così se reinstalli l'app o cambi telefono ritrovi tutto: basta scegliere la stessa cartella.",
     ) {
         if (name != null) {
             Text("Cartella scelta: $name", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)

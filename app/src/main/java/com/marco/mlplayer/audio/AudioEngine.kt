@@ -196,6 +196,15 @@ class AudioEngine(
                 AppLog.d("Audio", "isPlaying=$isPlayingNow")
             }
 
+            /** Salto manuale entro 30 secondi: pesa -0,5 sui gusti (se il brano finisce da solo non conta). */
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                if (reason != Player.DISCONTINUITY_REASON_SEEK) return
+                if (oldPosition.mediaItemIndex == newPosition.mediaItemIndex) return
+                if (oldPosition.positionMs !in 0 until 30_000L) return
+                val item = queue.getOrNull(oldPosition.mediaItemIndex)?.let { Yt.itemOf(it) } ?: return
+                (app as com.marco.mlplayer.MLPlayerApp).ytStore.recordSkip(item)
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updateCurrent()
                 prefetchNext()

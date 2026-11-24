@@ -20,7 +20,9 @@ import com.marco.mlplayer.ui.PlayerApp
 import com.marco.mlplayer.util.AppLog
 import com.marco.mlplayer.yt.YtBackup
 import com.marco.mlplayer.yt.YtDownloads
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity(), Actions {
 
@@ -32,6 +34,25 @@ class MainActivity : ComponentActivity(), Actions {
             app.settings.addFolder(uri.toString())
             AppLog.i("Libreria", "Cartella aggiunta: $uri")
             app.env.startScan(false)
+        }
+
+    private val dataPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri == null) return@registerForActivityResult
+            val app = application as MLPlayerApp
+            app.appScope.launch {
+                val text = withContext(Dispatchers.IO) {
+                    runCatching { contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } }.getOrNull()
+                }
+                val msg = text?.let { withContext(Dispatchers.IO) { runCatching { com.marco.mlplayer.yt.DataTransfer.import(app, it) }.getOrNull() } }
+                if (msg == null) {
+                    app.env.message = "Non è un file di backup di Sonara"
+                } else {
+                    app.env.message = "$msg: riavvio l'app"
+                    kotlinx.coroutines.delay(1500)
+                    restartApp()
+                }
+            }
         }
 
     private val downloadPicker =
@@ -242,6 +263,36 @@ class MainActivity : ComponentActivity(), Actions {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (e: Exception) {
             AppLog.w("App", "Impossibile aprire $url", e)
+        }
+    }
+
+    override fun exportData() {
+        val app = application as MLPlayerApp
+        app.appScope.launch {
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    java.io.File(cacheDir, com.marco.mlplayer.yt.DataTransfer.FILE).also { it.writeText(com.marco.mlplayer.yt.DataTransfer.export(app)) }
+                }
+                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, "Backup di Sonara")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(send, "Esporta i dati di Sonara"))
+            } catch (e: Exception) {
+                AppLog.e("App", "Esportazione non riuscita", e)
+                app.env.message = "Esportazione non riuscita (dettagli nel log)"
+            }
+        }
+    }
+
+    override fun importData() {
+        try {
+            dataPicker.launch(arrayOf("application/json", "application/octet-stream", "text/plain", "*/*"))
+        } catch (e: Exception) {
+            AppLog.e("App", "Selettore file non disponibile", e)
         }
     }
 
