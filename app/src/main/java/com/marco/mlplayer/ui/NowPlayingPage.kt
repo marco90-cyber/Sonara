@@ -241,19 +241,26 @@ fun NowPlayingPage(env: AppEnv) {
                                 .background(cs.surfaceContainerHighest.copy(alpha = 0.85f)),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleDislike(yi); if (!dis) env.message = "Non lo proporrò più nei suggerimenti" }) {
+                            // premuto: cerchio pieno di colore, così si vede subito
+                            IconButton(
+                                onClick = { fb.tapScreen(); env.app.ytStore.toggleDislike(yi); if (!dis) env.message = "Non lo proporrò più nei suggerimenti" },
+                                modifier = Modifier.padding(4.dp).clip(CircleShape).background(if (dis) cs.error else androidx.compose.ui.graphics.Color.Transparent),
+                            ) {
                                 Icon(
                                     Icons.Filled.ThumbDown,
                                     contentDescription = if (dis) "Annulla non mi piace" else "Non mi piace",
-                                    tint = if (dis) cs.error else cs.onSurface, modifier = Modifier.size(22.dp),
+                                    tint = if (dis) cs.onError else cs.onSurface, modifier = Modifier.size(22.dp),
                                 )
                             }
                             Box(Modifier.width(1.dp).height(22.dp).background(cs.outline.copy(alpha = 0.6f)))
-                            IconButton(onClick = { fb.tapScreen(); env.app.ytStore.toggleFavorite(yi) }) {
+                            IconButton(
+                                onClick = { fb.tapScreen(); env.app.ytStore.toggleFavorite(yi) },
+                                modifier = Modifier.padding(4.dp).clip(CircleShape).background(if (fav) cs.primary else androidx.compose.ui.graphics.Color.Transparent),
+                            ) {
                                 Icon(
                                     Icons.Filled.ThumbUp,
                                     contentDescription = if (fav) "Togli il mi piace" else "Mi piace",
-                                    tint = if (fav) cs.primary else cs.onSurface, modifier = Modifier.size(22.dp),
+                                    tint = if (fav) cs.onPrimary else cs.onSurface, modifier = Modifier.size(22.dp),
                                 )
                             }
                         }
