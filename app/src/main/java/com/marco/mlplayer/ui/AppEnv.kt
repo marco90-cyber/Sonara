@@ -250,7 +250,7 @@ class AppEnv(val app: MLPlayerApp) {
         }
 
     /** Sezione da cui si è arrivati al lettore: il tasto indietro ci riporta lì. */
-    private var tabBeforePlayer = Tab.Home
+    var tabBeforePlayer = Tab.Home
 
     fun select(t: Tab) {
         if (tab == t) currentNav?.popToRoot()

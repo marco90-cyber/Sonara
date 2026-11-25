@@ -53,7 +53,7 @@ object YtFeed {
     }
 
     /** L'artista con quel nome (o null): prende il primo risultato solo se il nome combacia. */
-    private fun artistEntry(name: String): Yt.Entry? {
+    internal fun artistEntry(name: String): Yt.Entry? {
         val key = YtTaste.norm(name)
         synchronized(artistCache) { if (artistCache.containsKey(key)) return artistCache[key] }
         val hit = runCatching { Yt.searchEntries(name, Yt.Kind.Artists, 1) }.getOrNull()

@@ -67,7 +67,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -120,21 +124,30 @@ fun PlayerApp(env: AppEnv) {
             if (!env.back()) activity?.moveTaskToBack(true)
         }
 
+        val sheet = remember { PlayerSheetState(if (env.tab == Tab.NowPlaying && env.engine.currentTrack != null) 1f else 0f) }
         Surface(Modifier.fillMaxSize(), color = cs.surface) {
-            Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().onGloballyPositioned { sheet.origin = it.positionInRoot() }) {
                 Scaffold(
                     containerColor = cs.surface,
                     contentWindowInsets = WindowInsets(0),
                     bottomBar = {
                         Column(Modifier.background(cs.surface)) {
-                            if (env.tab != Tab.NowPlaying && env.engine.currentTrack != null) MiniPlayer(env)
-                            NavBar(env)
+                            if (env.engine.currentTrack != null) MiniPlayer(
+                                env,
+                                Modifier
+                                    .graphicsLayer { alpha = (1f - sheet.expansion.value * 2.2f).coerceIn(0f, 1f) }
+                                    .onGloballyPositioned { sheet.miniBounds = it.boundsInRoot() }
+                            )
+                            NavBar(env, Modifier.onGloballyPositioned { sheet.navTop = it.positionInRoot().y })
                         }
                     }
                 ) { pad ->
                     // le pagine dentro non devono riaggiungere lo spazio della barra di navigazione
                     Box(Modifier.padding(pad).consumeWindowInsets(pad).fillMaxSize()) {
-                        Crossfade(targetState = env.tab, animationSpec = tween(200), label = "sezione") { t ->
+                        // con un brano il lettore è lo strato sopra (PlayerSheetLayer): sotto resta la pagina da cui sei arrivato
+                        val below = if (env.tab == Tab.NowPlaying && env.engine.currentTrack != null)
+                            env.tabBeforePlayer.takeIf { it != Tab.NowPlaying } ?: Tab.Home else env.tab
+                        Crossfade(targetState = below, animationSpec = tween(200), label = "sezione") { t ->
                             when (t) {
                                 Tab.Home -> HomePage(env)
                                 Tab.NowPlaying -> NowPlayingPage(env)
@@ -145,6 +158,9 @@ fun PlayerApp(env: AppEnv) {
                         }
                     }
                 }
+
+                // lettore: cresce dal mini player e si chiude trascinando in basso
+                PlayerSheetLayer(env, sheet)
 
                 // pagine sopra alle sezioni
                 for (o in listOf(Overlay.Analyzer, Overlay.Log, Overlay.Lyrics, Overlay.Cover, Overlay.Tags, Overlay.Source)) {
@@ -194,8 +210,8 @@ fun PlayerApp(env: AppEnv) {
 }
 
 @Composable
-private fun NavBar(env: AppEnv) {
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+private fun NavBar(env: AppEnv, modifier: Modifier = Modifier) {
+    NavigationBar(modifier = modifier, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
         for (t in Tab.entries) {
             val sel = env.tab == t
             val (on, off) = t.icons()
@@ -215,7 +231,7 @@ private fun NavBar(env: AppEnv) {
 
 /** Brano in riproduzione, in una scheda scura e arrotondata sopra la barra: tocca per aprire il lettore. */
 @Composable
-private fun MiniPlayer(env: AppEnv) {
+private fun MiniPlayer(env: AppEnv, modifier: Modifier = Modifier) {
     val e = env.engine
     val t = e.currentTrack ?: return
     val cs = MaterialTheme.colorScheme
@@ -235,6 +251,7 @@ private fun MiniPlayer(env: AppEnv) {
         Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp)
+            .then(modifier)
             .clip(RoundedCornerShape(28.dp))
             .background(bg)
             .clickable { env.feedback.tapScreen(); env.openNowPlaying() }

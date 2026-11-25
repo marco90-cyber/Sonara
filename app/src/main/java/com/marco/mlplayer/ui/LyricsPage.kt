@@ -75,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -125,6 +126,17 @@ fun LyricsPage(env: AppEnv) {
     LaunchedEffect(store.lyrics, s.lyricsTranslate) { if (s.lyricsTranslate) store.loadTranslation() }
     LaunchedEffect(store.lyrics, s.lyricsRomanize) { if (s.lyricsRomanize) store.loadRomanization() }
 
+    val tint = rememberCoverTint(env, t)
+    val onDark = cs.copy(
+        primary = Color.White, onPrimary = Color(0xFF1B1B1B),
+        onSurface = Color.White, onSurfaceVariant = Color.White.copy(alpha = 0.72f),
+        secondaryContainer = Color.White.copy(alpha = 0.18f), onSecondaryContainer = Color.White,
+        surfaceContainer = Color.Black.copy(alpha = 0.22f),
+    )
+    MaterialTheme(colorScheme = onDark, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
+    val cs = MaterialTheme.colorScheme
+    Box(Modifier.fillMaxSize()) {
+    LyricsBackdrop(tint, Modifier.matchParentSize())
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             title = {
@@ -146,7 +158,7 @@ fun LyricsPage(env: AppEnv) {
                     Icon(Icons.Filled.Tune, contentDescription = "Opzioni del testo")
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = cs.surface),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
         )
 
         val l = store.lyrics
@@ -209,7 +221,9 @@ fun LyricsPage(env: AppEnv) {
             if (t != null && showOffset) OffsetPanel(env, t, Modifier.align(Alignment.BottomCenter)) { showOffset = false }
         }
 
-        if (t != null) LyricsTransport(env)
+        if (t != null) LyricsTransportBar(env)
+    }
+    }
     }
 
     if (t != null && showOptions) LyricsOptionsSheet(
@@ -273,17 +287,11 @@ private fun SyncedLyrics(env: AppEnv, t: Track, lines: List<LLine>) {
             state = list,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 320.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
             itemsIndexed(lines) { i, line ->
                 val active = i == current
-                val color by animateColorAsState(
-                    when {
-                        active -> cs.onSurface
-                        i < current -> cs.onSurface.copy(alpha = 0.42f)
-                        else -> cs.onSurface.copy(alpha = 0.32f)
-                    }, tween(250), label = "riga"
-                )
+                val dist = if (current < 0) i else kotlin.math.abs(i - current)
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -295,22 +303,8 @@ private fun SyncedLyrics(env: AppEnv, t: Track, lines: List<LLine>) {
                         }
                         .padding(vertical = 4.dp)
                 ) {
-                    val size = (26 * scale).sp
-                    if (line.text.isBlank()) {
-                        Text("♪", fontSize = size, color = color, fontWeight = FontWeight.Bold)
-                    } else if (active && line.words.isNotEmpty()) {
-                        // a parole: quelle già cantate in pieno colore, le altre più tenui
-                        val text = buildAnnotatedString {
-                            for (w in line.words) {
-                                withStyle(SpanStyle(color = if (w.start <= now) cs.onSurface else cs.onSurface.copy(alpha = 0.38f))) {
-                                    append(w.text)
-                                }
-                            }
-                        }
-                        Text(text, fontSize = size, lineHeight = size * 1.2f, fontWeight = FontWeight.Bold)
-                    } else {
-                        Text(line.text, fontSize = size, lineHeight = size * 1.2f, fontWeight = FontWeight.Bold, color = color)
-                    }
+                    // parole che si alzano mentre vengono cantate, righe lontane sfumate (stile LastWave)
+                    LyricRow(line, active, dist, if (active) now else 0L, (30 * scale).sp)
                     store.romanization?.getOrNull(i)?.takeIf { it.isNotBlank() && s.lyricsRomanize }?.let {
                         Text(it, fontSize = (16 * scale).sp, fontStyle = FontStyle.Italic, color = cs.onSurfaceVariant.copy(alpha = if (active) 1f else 0.6f))
                     }

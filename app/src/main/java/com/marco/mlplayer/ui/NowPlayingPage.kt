@@ -90,6 +90,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -150,9 +151,13 @@ fun NowPlayingPage(env: AppEnv) {
     ) {
         // barra in alto
         Row(
-            Modifier.fillMaxWidth().height(56.dp).padding(start = 24.dp, end = 8.dp),
+            Modifier.fillMaxWidth().height(56.dp).padding(start = 8.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // freccia in giù: abbassa il lettore e torna alla Home
+            IconButton(onClick = { fb.tapScreen(); env.tab = Tab.Home }) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Abbassa il lettore")
+            }
             Text(
                 if (t != null && e.queueSize > 0) "Brano ${e.queueIndex + 1} di ${e.queueSize}" else "In riproduzione",
                 style = MaterialTheme.typography.titleMedium, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f)

@@ -71,8 +71,12 @@ import com.marco.mlplayer.yt.YtApi
 import com.marco.mlplayer.yt.YtDownloads
 
 /** Stato della sezione Libreria: resta uguale cambiando sezione. */
-private object LibUi {
-    var page by mutableIntStateOf(0)
+internal object LibUi {
+    /** -1 = pagina iniziale della Libreria, 0 Preferiti, 1 Cronologia, 3 Salvati, 4 Scaricati, 5 Playlist, 6 Riepilogo, 7 Generator. */
+    var page by mutableIntStateOf(-1)
+    /** Pagina iniziale: ricerca e ordine delle playlist (0 recenti, 1 A-Z, 2 più brani). */
+    var homeQuery by mutableStateOf("")
+    var homeSort by mutableIntStateOf(0)
     /** Pagine aperte dai Salvati (artista -> album ...). */
     val trail = androidx.compose.runtime.mutableStateListOf<Yt.Entry>()
     /** Gruppo di download aperto in Scaricati. */
@@ -92,11 +96,15 @@ private object LibUi {
 fun LibraryPage(env: AppEnv) {
     val cs = MaterialTheme.colorScheme
     val store = env.app.ytStore
+    // dalle sezioni si torna alla pagina iniziale (registrato per primo: gli altri indietro, più in basso, hanno la precedenza)
+    BackHandler(enabled = LibUi.page != -1) { LibUi.page = -1 }
     BackHandler(enabled = LibUi.page == 4 && LibUi.dlOpen != null) { LibUi.dlOpen = null }
     BackHandler(enabled = LibUi.page == 5 && LibUi.myOpen != null) { LibUi.myOpen = null }
     BackHandler(enabled = LibUi.page == 3 && LibUi.trail.isNotEmpty()) { LibUi.trail.removeAt(LibUi.trail.lastIndex) }
+    if (LibUi.page == -1) { LibraryHome(env); return }
+    if (LibUi.page == 7) { GeneratorPage(env) { LibUi.page = -1 }; return }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
-        Text("Raccolta", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+        BackRow("Libreria") { LibUi.page = -1 }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = LibUi.page == 0, onClick = { LibUi.page = 0 }, label = { Text("Preferiti · ${store.favorites.size}") })
             FilterChip(selected = LibUi.page == 5, onClick = { LibUi.page = 5 }, label = { Text("Playlist · ${store.myPlaylists.size}") })
