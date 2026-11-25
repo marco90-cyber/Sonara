@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -49,6 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +71,7 @@ import com.marco.mlplayer.yt.YtGenerator.Mode
 import com.marco.mlplayer.yt.YtGenerator.Period
 import com.marco.mlplayer.yt.YtTaste
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -169,6 +172,15 @@ fun GeneratorPage(env: AppEnv, onBack: () -> Unit) {
         }
     }
 
+    // scelta una modalità, la lista scende da sola fino alle sue opzioni
+    val list = rememberLazyListState()
+    LaunchedEffect(mode) {
+        if (mode != null) {
+            delay(80)
+            runCatching { list.animateScrollToItem(Mode.entries.size) }
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         // intestazione: indietro, titolo e sottotitolo
         Surface(color = cs.surfaceContainer, shape = RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp)) {
@@ -181,7 +193,7 @@ fun GeneratorPage(env: AppEnv, onBack: () -> Unit) {
                 }
             }
         }
-        LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyColumn(Modifier.weight(1f), state = list, contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(Mode.entries.toList()) { m ->
                 val i = info(m)
                 val sel = mode == m
