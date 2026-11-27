@@ -13,6 +13,7 @@ import okhttp3.Request
 import com.marco.mlplayer.audio.LyricsAiService
 import com.marco.mlplayer.data.Track
 import com.marco.mlplayer.lyrics.LLine
+import com.marco.mlplayer.lyrics.LWord
 import com.marco.mlplayer.lyrics.Lyrics
 import com.marco.mlplayer.ui.AppEnv
 import com.marco.mlplayer.util.AppLog
@@ -138,12 +139,12 @@ object LyricsAi {
 
     private val JUNK = Regex("""^[\[(*♪♫♬\s].*[])*♪♫♬\s]$|^[♪♫♬\s.]*$""")
 
-    /** Righe "inizio<TAB>fine<TAB>testo" → righe del testo, senza le tipiche invenzioni di Whisper. */
+    /** Righe "inizio<TAB>fine<TAB>testo<TAB>parole" → righe del testo con i tempi delle parole, senza le tipiche invenzioni di Whisper. */
     internal fun clean(raw: String): List<LLine> {
         val out = ArrayList<LLine>()
         var repeat = 0
         for (row in raw.lineSequence()) {
-            val p = row.split('\t', limit = 3)
+            val p = row.split('\t', limit = 4)
             if (p.size < 3) continue
             val start = p[0].toLongOrNull() ?: continue
             val end = (p[1].toLongOrNull() ?: start).coerceAtLeast(start)
@@ -152,9 +153,34 @@ object LyricsAi {
             val same = out.isNotEmpty() && out.last().text.equals(text, ignoreCase = true)
             repeat = if (same) repeat + 1 else 0
             if (repeat >= 4) continue   // ripetizione infinita: è un'allucinazione, non un ritornello
-            out.add(LLine(start, end, text))
+            out.add(LLine(start, end, text, words(p.getOrNull(3).orEmpty(), start, end)))
         }
         return out
+    }
+
+    /** "inizio:fine:parola" separati da 0x1F → parole con tempi coerenti (in ordine, dentro la riga, senza buchi piccoli). */
+    private fun words(field: String, lineStart: Long, lineEnd: Long): List<LWord> {
+        if (field.isBlank()) return emptyList()
+        val raw = field.split('\u001f').filter { it.isNotBlank() }.mapNotNull {
+            val q = it.split(':', limit = 3)
+            if (q.size < 3 || q[2].isBlank()) null else Triple(q[0].toLongOrNull() ?: return@mapNotNull null, q[1].toLongOrNull() ?: return@mapNotNull null, q[2])
+        }
+        if (raw.isEmpty()) return emptyList()
+        val maxEnd = maxOf(lineEnd, raw.last().second)
+        val starts = LongArray(raw.size)
+        var prev = lineStart
+        for (i in raw.indices) {
+            starts[i] = raw[i].first.coerceIn(prev, maxEnd)
+            prev = starts[i]
+        }
+        return raw.indices.map { i ->
+            val nextStart = if (i < raw.lastIndex) starts[i + 1] else maxEnd
+            var e = raw[i].second.coerceIn(starts[i], maxEnd)
+            // se tra una parola e la prossima c'è una pausa breve, la parola resta accesa fino alla successiva
+            if (i < raw.lastIndex && nextStart - e < 400) e = nextStart
+            if (e <= starts[i]) e = (starts[i] + 120).coerceAtMost(maxOf(nextStart, starts[i] + 1))
+            LWord(starts[i], e, raw[i].third + if (i < raw.lastIndex) " " else "")
+        }
     }
 
     // ---------------------------------------------------------------- rete

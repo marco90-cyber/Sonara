@@ -87,6 +87,7 @@ JNIEXPORT jstring JNICALL Java_com_marco_mlplayer_ai_WhisperJni_transcribe(
     wp.detect_language = false;
     wp.n_threads = threads > 0 ? threads : (int) std::max(2u, std::thread::hardware_concurrency() / 2);
     wp.no_context = true;               // ogni finestra parte da zero: meno ripetizioni inventate
+    wp.token_timestamps = true;         // tempi per singola parola (karaoke)
     wp.suppress_nst = true;             // niente "[Musica]", "♪" e simili
     wp.greedy.best_of = 1;
 
@@ -115,7 +116,33 @@ JNIEXPORT jstring JNICALL Java_com_marco_mlplayer_ai_WhisperJni_transcribe(
         for (auto& c : text) if (c == '\t' || c == '\n' || c == '\r') c = ' ';
         long long t0 = whisper_full_get_segment_t0(ctx, i) * 10;   // centesimi di secondo -> ms
         long long t1 = whisper_full_get_segment_t1(ctx, i) * 10;
-        out += std::to_string(t0) + "\t" + std::to_string(t1) + "\t" + text + "\n";
+
+        // parole: i pezzi (token) che non iniziano con uno spazio si attaccano alla parola precedente
+        std::string words, cur;
+        long long ws = -1, we = -1;
+        auto flush = [&]() {
+            if (!cur.empty()) words += std::to_string(ws) + ":" + std::to_string(we) + ":" + cur + "\x1f";
+            cur.clear();
+            ws = -1;
+        };
+        int nt = whisper_full_n_tokens(ctx, i);
+        for (int j = 0; j < nt; j++) {
+            if (whisper_full_get_token_id(ctx, i, j) >= whisper_token_eot(ctx)) continue;   // token speciali e tempi
+            const char* tx = whisper_full_get_token_text(ctx, i, j);
+            if (!tx) continue;
+            std::string tk(tx);
+            for (auto& c : tk) if (c == '\t' || c == '\n' || c == '\r' || c == '\x1f') c = ' ';
+            whisper_token_data d = whisper_full_get_token_data(ctx, i, j);
+            bool starts = !tk.empty() && tk[0] == ' ';
+            if (starts) flush();
+            std::string core = starts ? tk.substr(1) : tk;
+            if (core.empty()) continue;
+            if (cur.empty()) ws = d.t0 * 10;
+            cur += core;
+            we = d.t1 * 10;
+        }
+        flush();
+        out += std::to_string(t0) + "\t" + std::to_string(t1) + "\t" + text + "\t" + words + "\n";
     }
     return env->NewStringUTF(out.c_str());
 #else
