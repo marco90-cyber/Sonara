@@ -59,6 +59,11 @@
             android:foregroundServiceType="dataSync" />
 
         <service
+            android:name=".audio.LyricsAiService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".audio.ImportService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

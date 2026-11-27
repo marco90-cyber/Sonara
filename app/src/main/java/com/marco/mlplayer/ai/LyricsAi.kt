@@ -1,13 +1,16 @@
 package com.marco.mlplayer.ai
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
+import com.marco.mlplayer.audio.LyricsAiService
 import com.marco.mlplayer.data.Track
 import com.marco.mlplayer.lyrics.LLine
 import com.marco.mlplayer.lyrics.Lyrics
@@ -46,7 +49,14 @@ object LyricsAi {
         data class Done(val trackId: String) : State()
     }
 
-    var state by mutableStateOf<State>(State.Idle)
+    private var current by mutableStateOf<State>(State.Idle)
+    var state: State
+        get() = current
+        private set(v) { current = v; onChange?.invoke() }
+    /** Chiamato a ogni cambio di stato: la notifica del servizio si aggiorna da qui. */
+    @Volatile var onChange: (() -> Unit)? = null
+    /** Titolo del brano in lavorazione, per la notifica. */
+    @Volatile var title: String = ""
         private set
     private var job: Job? = null
     @Volatile private var stop = false
@@ -71,7 +81,9 @@ object LyricsAi {
         if (busy) return
         val app = env.app
         stop = false
+        title = t.title
         state = State.Working(t.id, "Preparo", 0)
+        runCatching { ContextCompat.startForegroundService(app, Intent(app, LyricsAiService::class.java)) }
         val pm = app.getSystemService(Context.POWER_SERVICE) as PowerManager
         val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "sonara:testo-ai")
         job = app.appScope.launch(Dispatchers.Default) {
@@ -113,7 +125,7 @@ object LyricsAi {
                 state = State.Idle
             } catch (e: Throwable) {
                 AppLog.e(TAG, "Generazione del testo non riuscita", e)
-                state = State.Failed(t.id, e.message ?: "Non riuscito")
+                state = State.Failed(t.id, if (e is java.io.IOException) "Connessione interrotta, riprova" else e.message ?: "Non riuscito")
             } finally {
                 tmp?.delete()
                 runCatching { if (wl.isHeld) wl.release() }
@@ -146,57 +158,86 @@ object LyricsAi {
 
     // ---------------------------------------------------------------- rete
 
+    /** Scarica con ripresa: se la connessione cade, riparte da dove era arrivato (fino a 6 tentativi). */
     private fun download(url: String, dest: File, onPct: (Int) -> Unit) {
         val part = File(dest.path + ".part")
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 15_000
-        c.readTimeout = 30_000
-        c.instanceFollowRedirects = true
-        if (c.responseCode !in 200..299) error("Download del modello non riuscito (${c.responseCode})")
-        val total = c.contentLengthLong
-        var done = 0L
-        var last = -1
-        c.inputStream.use { i ->
-            part.outputStream().use { o ->
-                val buf = ByteArray(64 * 1024)
-                while (true) {
-                    if (stop) throw CancellationException()
-                    val n = i.read(buf)
-                    if (n < 0) break
-                    o.write(buf, 0, n)
-                    done += n
-                    if (total > 0) {
-                        val pct = (done * 100 / total).toInt()
-                        if (pct != last) { last = pct; onPct(pct) }
+        var attempt = 0
+        while (true) {
+            try {
+                val have = if (part.exists()) part.length() else 0L
+                val c = URL(url).openConnection() as HttpURLConnection
+                c.connectTimeout = 15_000
+                c.readTimeout = 30_000
+                c.instanceFollowRedirects = true
+                if (have > 0) c.setRequestProperty("Range", "bytes=$have-")
+                val code = c.responseCode
+                if (code == 416) { part.delete(); continue }
+                if (code !in 200..299) error("Download del modello non riuscito ($code)")
+                val resumed = code == 206
+                val base = if (resumed) have else 0L
+                val total = c.contentLengthLong.let { if (it > 0) it + base else -1L }
+                var done = base
+                var last = -1
+                c.inputStream.use { i ->
+                    java.io.FileOutputStream(part, resumed).use { o ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            if (stop) throw CancellationException()
+                            val n = i.read(buf)
+                            if (n < 0) break
+                            o.write(buf, 0, n)
+                            done += n
+                            if (total > 0) {
+                                val pct = (done * 100 / total).toInt()
+                                if (pct != last) { last = pct; onPct(pct) }
+                            }
+                        }
                     }
                 }
+                break
+            } catch (e: java.io.IOException) {
+                if (++attempt >= 6) throw e
+                AppLog.w(TAG, "Download interrotto, riprovo ($attempt)", e)
+                Thread.sleep(2_000L * attempt)
             }
         }
         if (!part.renameTo(dest)) error("Modello non salvato")
     }
 
+    /** Scarica l'audio del flusso; se la connessione cade ricomincia (4 tentativi): il file è piccolo. */
     private fun fetchStream(app: Context, uri: String, dest: File, onPct: (Int) -> Unit) {
-        val ds = YtDataSource.factory(app, 0).createDataSource()
-        try {
-            val len = ds.open(DataSpec(Uri.parse(uri)))
-            var done = 0L
-            var last = -1
-            dest.outputStream().use { o ->
-                val buf = ByteArray(64 * 1024)
-                while (true) {
-                    if (stop) throw CancellationException()
-                    val n = ds.read(buf, 0, buf.size)
-                    if (n < 0) break
-                    o.write(buf, 0, n)
-                    done += n
-                    if (len > 0) {
-                        val pct = (done * 100 / len).toInt()
-                        if (pct != last) { last = pct; onPct(pct) }
+        var attempt = 0
+        while (true) {
+            val ds = YtDataSource.factory(app, 0).createDataSource()
+            try {
+                val len = ds.open(DataSpec(Uri.parse(uri)))
+                var done = 0L
+                var last = -1
+                dest.outputStream().use { o ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        if (stop) throw CancellationException()
+                        val n = ds.read(buf, 0, buf.size)
+                        if (n < 0) break
+                        o.write(buf, 0, n)
+                        done += n
+                        if (len > 0) {
+                            val pct = (done * 100 / len).toInt()
+                            if (pct != last) { last = pct; onPct(pct) }
+                        }
                     }
                 }
+                return
+            } catch (e: java.io.IOException) {
+                if (++attempt >= 4) throw e
+                AppLog.w(TAG, "Audio interrotto, riprovo ($attempt)", e)
+                Thread.sleep(1_500L * attempt)
+            } catch (e: androidx.media3.datasource.DataSourceException) {
+                if (++attempt >= 4) throw e
+                Thread.sleep(1_500L * attempt)
+            } finally {
+                runCatching { ds.close() }
             }
-        } finally {
-            runCatching { ds.close() }
         }
     }
 }
