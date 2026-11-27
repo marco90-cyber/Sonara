@@ -33,6 +33,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.outlined.LightMode as LightModeOutlined
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -50,6 +52,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +68,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -76,6 +80,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -93,6 +99,7 @@ import com.marco.mlplayer.lyrics.LyricsProvider
 import com.marco.mlplayer.lyrics.LyricsStore
 import com.marco.mlplayer.lyrics.SourceState
 import com.marco.mlplayer.util.mmss
+import android.widget.Toast
 import com.marco.mltheme.MLGroup
 import com.marco.mltheme.MLNavRow
 import com.marco.mltheme.MLSwitchRow
@@ -121,6 +128,14 @@ fun LyricsPage(env: AppEnv) {
     var showSources by remember { mutableStateOf(false) }
     var showOffset by remember { mutableStateOf(false) }
     var showEdit by remember { mutableStateOf(false) }
+    // schermo sempre acceso: vale solo in questa schermata, si spegne da solo quando esci dai testi
+    var keepOn by remember { mutableStateOf(false) }
+    val view = LocalView.current
+    val ctx = LocalContext.current
+    DisposableEffect(keepOn) {
+        view.keepScreenOn = keepOn
+        onDispose { view.keepScreenOn = false }
+    }
 
     LaunchedEffect(t?.id) { if (t != null) store.load(t) }
     LaunchedEffect(store.lyrics, s.lyricsTranslate) { if (s.lyricsTranslate) store.loadTranslation() }
@@ -153,26 +168,43 @@ fun LyricsPage(env: AppEnv) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro")
                 }
             },
-            actions = {
-                IconButton(onClick = { env.feedback.tapScreen(); showOptions = true }, enabled = t != null) {
-                    Icon(Icons.Filled.Tune, contentDescription = "Opzioni del testo")
-                }
-            },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
         )
 
         val l = store.lyrics
-        // fonte e tipo di sincronizzazione: tocca per cambiare fonte
-        if (l != null && !store.loading) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.Center) {
-                Surface(
-                    color = cs.secondaryContainer, shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable { showSources = true }
-                ) {
-                    Text(
-                        "${l.kind.label} · ${l.source}", style = MaterialTheme.typography.labelLarge,
-                        color = cs.onSecondaryContainer, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
+        // fonte e tipo di sincronizzazione (tocca per cambiare fonte), con accanto schermo sempre acceso e opzioni
+        if (t != null) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (l != null && !store.loading) {
+                    Surface(
+                        color = cs.secondaryContainer, shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable { showSources = true }
+                    ) {
+                        Text(
+                            "${l.kind.label} · ${l.source}", style = MaterialTheme.typography.labelLarge,
+                            color = cs.onSecondaryContainer, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
+                val awakeClick = {
+                    env.feedback.tapScreen()
+                    keepOn = !keepOn
+                    Toast.makeText(
+                        ctx, if (keepOn) "Schermo sempre acceso: attivo" else "Schermo sempre acceso: disattivato",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                if (keepOn) FilledTonalIconButton(onClick = awakeClick) {
+                    Icon(Icons.Filled.LightMode, contentDescription = "Schermo sempre acceso: attivo")
+                } else IconButton(onClick = awakeClick) {
+                    Icon(Icons.Outlined.LightModeOutlined, contentDescription = "Schermo sempre acceso: disattivato", tint = cs.onSurfaceVariant)
+                }
+                IconButton(onClick = { env.feedback.tapScreen(); showOptions = true }) {
+                    Icon(Icons.Filled.Tune, contentDescription = "Opzioni del testo")
                 }
             }
         }
