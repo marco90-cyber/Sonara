@@ -9,14 +9,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DataSpec
+import okhttp3.Request
 import com.marco.mlplayer.audio.LyricsAiService
 import com.marco.mlplayer.data.Track
 import com.marco.mlplayer.lyrics.LLine
 import com.marco.mlplayer.lyrics.Lyrics
 import com.marco.mlplayer.ui.AppEnv
 import com.marco.mlplayer.util.AppLog
-import com.marco.mlplayer.yt.YtDataSource
+import com.marco.mlplayer.util.Net
+import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtDownloads
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -102,7 +103,7 @@ object LyricsAi {
                     if (dl != null) PcmDecoder.decode(app, dl, null, { state = State.Working(t.id, "Leggo l'audio", it) }, { stop })
                     else {
                         tmp = File(app.cacheDir, "testo_ai_input.bin")
-                        fetchStream(app, t.uri, tmp) { state = State.Working(t.id, "Scarico l'audio", it) }
+                        fetchStream(t.uri, tmp) { state = State.Working(t.id, "Scarico l'audio", it) }
                         PcmDecoder.decode(app, null, tmp, { state = State.Working(t.id, "Leggo l'audio", it) }, { stop })
                     }
                 } else PcmDecoder.decode(app, Uri.parse(t.uri), null, { state = State.Working(t.id, "Leggo l'audio", it) }, { stop })
@@ -204,39 +205,51 @@ object LyricsAi {
         if (!part.renameTo(dest)) error("Modello non salvato")
     }
 
-    /** Scarica l'audio del flusso; se la connessione cade ricomincia (4 tentativi): il file è piccolo. */
-    private fun fetchStream(app: Context, uri: String, dest: File, onPct: (Int) -> Unit) {
-        var attempt = 0
-        while (true) {
-            val ds = YtDataSource.factory(app, 0).createDataSource()
-            try {
-                val len = ds.open(DataSpec(Uri.parse(uri)))
-                var done = 0L
-                var last = -1
-                dest.outputStream().use { o ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        if (stop) throw CancellationException()
-                        val n = ds.read(buf, 0, buf.size)
-                        if (n < 0) break
-                        o.write(buf, 0, n)
-                        done += n
-                        if (len > 0) {
-                            val pct = (done * 100 / len).toInt()
-                            if (pct != last) { last = pct; onPct(pct) }
+    /**
+     * Scarica l'audio del flusso a blocchi da 4 MB con Range, come fanno i download dell'app e il sito di YouTube:
+     * una richiesta unica e lunga viene interrotta dal server. Ogni blocco si riprova (4 tentativi) dallo stesso punto.
+     */
+    private fun fetchStream(videoUri: String, dest: File, onPct: (Int) -> Unit) {
+        val res = Yt.resolve(videoUri.removePrefix("yt:"), preferMp4 = true)
+        var pos = 0L
+        var total = -1L
+        val buf = ByteArray(64 * 1024)
+        dest.outputStream().use { out ->
+            while (total < 0 || pos < total) {
+                var attempt = 0
+                while (true) {
+                    if (stop) throw CancellationException()
+                    try {
+                        val req = Request.Builder().url(res.url)
+                            .header("Range", "bytes=$pos-${pos + 4L * 1024 * 1024 - 1}")
+                            .header("User-Agent", Net.BROWSER_UA)
+                            .build()
+                        Net.client.newCall(req).execute().use { r ->
+                            if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code}")
+                            if (total < 0) {
+                                total = r.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                                    ?: r.body?.contentLength()?.takeIf { it > 0 } ?: throw java.io.IOException("Dimensione sconosciuta")
+                            }
+                            val input = (r.body ?: throw java.io.IOException("Risposta vuota")).byteStream()
+                            var got = 0L
+                            while (true) {
+                                if (stop) throw CancellationException()
+                                val n = input.read(buf)
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                                got += n
+                                pos += n
+                                onPct((pos * 100 / total).toInt().coerceIn(0, 99))
+                            }
+                            if (got <= 0) throw java.io.IOException("Flusso interrotto")
                         }
+                        break
+                    } catch (e: java.io.IOException) {
+                        if (++attempt >= 4) throw e
+                        AppLog.w(TAG, "Blocco audio interrotto, riprovo ($attempt)", e)
+                        Thread.sleep(1_500L * attempt)
                     }
                 }
-                return
-            } catch (e: java.io.IOException) {
-                if (++attempt >= 4) throw e
-                AppLog.w(TAG, "Audio interrotto, riprovo ($attempt)", e)
-                Thread.sleep(1_500L * attempt)
-            } catch (e: androidx.media3.datasource.DataSourceException) {
-                if (++attempt >= 4) throw e
-                Thread.sleep(1_500L * attempt)
-            } finally {
-                runCatching { ds.close() }
             }
         }
     }
