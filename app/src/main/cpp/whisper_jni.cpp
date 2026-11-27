@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <string>
+#include <vector>
 #include <thread>
 
 #ifdef WHISPER_ENABLED
@@ -59,6 +60,41 @@ JNIEXPORT jlong JNICALL Java_com_marco_mlplayer_ai_WhisperJni_init(JNIEnv* env, 
 JNIEXPORT void JNICALL Java_com_marco_mlplayer_ai_WhisperJni_free(JNIEnv*, jclass, jlong ctx) {
 #ifdef WHISPER_ENABLED
     if (ctx) whisper_free(reinterpret_cast<whisper_context*>(ctx));
+#endif
+}
+
+// Riconosce la lingua su tre finestre da 30 s (25%, 50%, 75% del brano) e sceglie la più probabile in totale.
+JNIEXPORT jstring JNICALL Java_com_marco_mlplayer_ai_WhisperJni_detectLanguage(
+    JNIEnv* env, jclass, jlong handle, jfloatArray pcm, jint threads) {
+#ifdef WHISPER_ENABLED
+    auto* ctx = reinterpret_cast<whisper_context*>(handle);
+    if (!ctx) return env->NewStringUTF("");
+    jsize n = env->GetArrayLength(pcm);
+    jfloat* data = env->GetFloatArrayElements(pcm, nullptr);
+    const int win = 30 * 16000;
+    int th = threads > 0 ? threads : (int) std::max(2u, std::thread::hardware_concurrency() / 2);
+    std::vector<float> probs(whisper_lang_max_id() + 1), sum(whisper_lang_max_id() + 1, 0.f);
+    bool any = false;
+    const float at[3] = {0.25f, 0.5f, 0.75f};
+    for (float a : at) {
+        long long start = (long long) (n * a) - win / 2;
+        if (start < 0) start = 0;
+        if (start > (long long) n - win) start = std::max(0LL, (long long) n - win);
+        long long len = std::min<long long>(win, n - start);
+        if (len < 3 * 16000) continue;
+        if (whisper_pcm_to_mel(ctx, data + start, (int) len, th) != 0) continue;
+        int id = whisper_lang_auto_detect(ctx, 0, th, probs.data());
+        if (id < 0) continue;
+        any = true;
+        for (size_t i = 0; i < probs.size(); i++) sum[i] += probs[i];
+    }
+    env->ReleaseFloatArrayElements(pcm, data, JNI_ABORT);
+    if (!any) return env->NewStringUTF("");
+    int best = (int) (std::max_element(sum.begin(), sum.end()) - sum.begin());
+    const char* s = whisper_lang_str(best);
+    return env->NewStringUTF(s ? s : "");
+#else
+    return env->NewStringUTF("");
 #endif
 }
 

@@ -1,6 +1,9 @@
 package com.marco.mlplayer.ui
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -68,6 +71,16 @@ fun LyricsAiDialog(env: AppEnv, t: Track, onDismiss: () -> Unit) {
                             "un brano da 4 minuti richiede da 1 a 5 minuti. Col canto può sbagliare qualche parola.",
                         style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant
                     )
+                    Text("Lingua del testo", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for ((code, name) in LyricsAi.LANGS) {
+                            FilterChip(selected = s.whisperLang == code, onClick = { s.whisperLang = code }, label = { Text(name) })
+                        }
+                    }
+                    Text(
+                        "Meglio indicare la lingua se la conosci: con «Automatica» un brano in più lingue può uscire mescolato.",
+                        style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                    )
                     for (m in LyricsAi.Model.entries) {
                         Row(
                             Modifier.fillMaxWidth().selectable(selected = m == model, role = Role.RadioButton) { s.whisperModel = m.ordinal },
@@ -94,7 +107,7 @@ fun LyricsAiDialog(env: AppEnv, t: Track, onDismiss: () -> Unit) {
         confirmButton = {
             if (LyricsAi.available) {
                 if (working != null) TextButton(onClick = { LyricsAi.cancel() }) { Text("Annulla la generazione") }
-                else TextButton(onClick = { env.feedback.tapScreen(); LyricsAi.start(env, t, model) }) {
+                else TextButton(onClick = { env.feedback.tapScreen(); LyricsAi.start(env, t, model, s.whisperLang) }) {
                     Text(if (LyricsAi.hasModel(ctx, model)) "Genera" else "Scarica e genera")
                 }
             }

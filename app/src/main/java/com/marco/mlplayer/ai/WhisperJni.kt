@@ -11,6 +11,8 @@ object WhisperJni {
     @JvmStatic external fun init(modelPath: String): Long
     @JvmStatic external fun free(handle: Long)
     @JvmStatic external fun cancel()
+    /** Lingua prevalente del brano ("it", "en"…), o stringa vuota se non la riconosce. */
+    @JvmStatic external fun detectLanguage(handle: Long, pcm: FloatArray, threads: Int): String
     /** Righe "inizio_ms<TAB>fine_ms<TAB>testo". [lang] = codice ("it", "en"…) o "auto". */
     @JvmStatic external fun transcribe(handle: Long, pcm: FloatArray, lang: String, threads: Int, cb: Progress?): String
 }

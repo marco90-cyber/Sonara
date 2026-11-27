@@ -140,6 +140,8 @@ class Settings(context: Context) {
     var lyricsSaveToFile by BoolPref(sp, "lyrics_save_file", true)
     /** Modello Whisper per generare i testi: 0 = Base, 1 = Small. */
     var whisperModel by IntPref(sp, "whisper_model", 0)
+    /** Lingua del testo da generare: "auto" = la riconosce dal brano e poi la fissa; altrimenti il codice ("it", "en"…). */
+    var whisperLang by StringPref(sp, "whisper_lang", "auto")
 
     // Tatto
     var hapticScreen by BoolPref(sp, "haptic_screen", true)

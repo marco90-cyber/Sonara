@@ -44,6 +44,9 @@ object LyricsAi {
         val url get() = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$file"
     }
 
+    /** Lingue tra cui scegliere: codice Whisper → nome. */
+    val LANGS = listOf("auto" to "Automatica", "it" to "Italiano", "en" to "Inglese", "es" to "Spagnolo", "fr" to "Francese", "de" to "Tedesco", "pt" to "Portoghese")
+
     sealed class State {
         data object Idle : State()
         data class Working(val trackId: String, val stage: String, val percent: Int) : State()
@@ -79,7 +82,7 @@ object LyricsAi {
 
     fun dismiss() { if (state !is State.Working) state = State.Idle }
 
-    fun start(env: AppEnv, t: Track, model: Model) {
+    fun start(env: AppEnv, t: Track, model: Model, lang: String = "auto") {
         if (busy) return
         val app = env.app
         stop = false
@@ -115,7 +118,17 @@ object LyricsAi {
                 val handle = WhisperJni.init(mf.path)
                 if (handle == 0L) { mf.delete(); error("Modello non caricato: riprova, lo riscarico") }
                 val raw = try {
-                    WhisperJni.transcribe(handle, pcm, "auto", 0) { p -> state = State.Working(t.id, "Ascolto e scrivo il testo", p) }
+                    // con la lingua "automatica" la si riconosce una volta sola e poi la si fissa per tutto il brano:
+                    // lasciandola libera Whisper cambia lingua da una finestra all'altra e scrive traduzioni
+                    var use = lang
+                    if (lang == "auto") {
+                        state = State.Working(t.id, "Riconosco la lingua", 0)
+                        use = WhisperJni.detectLanguage(handle, pcm, 0).ifBlank { "auto" }
+                        AppLog.i(TAG, "Lingua riconosciuta: $use")
+                        if (stop) throw CancellationException()
+                        state = State.Working(t.id, "Ascolto e scrivo il testo", 0)
+                    }
+                    WhisperJni.transcribe(handle, pcm, use, 0) { p -> state = State.Working(t.id, "Ascolto e scrivo il testo", p) }
                 } finally { WhisperJni.free(handle) }
                 if (stop) throw CancellationException()
 
