@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.FormatSize
@@ -93,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.marco.mlplayer.ai.LyricsAi
 import com.marco.mlplayer.data.Track
 import com.marco.mlplayer.lyrics.LLine
 import com.marco.mlplayer.lyrics.LyricsProvider
@@ -114,7 +116,7 @@ private fun fmtOffset(ms: Int): String =
     (if (ms > 0) "+" else if (ms < 0) "−" else "") + String.format(Locale.ITALY, "%.1f s", kotlin.math.abs(ms) / 1000f)
 
 /** Pagina Testo: testo sincronizzato che scorre con la musica, oppure testo semplice. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun LyricsPage(env: AppEnv) {
     val e = env.engine
@@ -128,6 +130,7 @@ fun LyricsPage(env: AppEnv) {
     var showSources by remember { mutableStateOf(false) }
     var showOffset by remember { mutableStateOf(false) }
     var showEdit by remember { mutableStateOf(false) }
+    var showAi by remember { mutableStateOf(false) }
     // schermo sempre acceso: vale solo in questa schermata, si spegne da solo quando esci dai testi
     var keepOn by remember { mutableStateOf(false) }
     val view = LocalView.current
@@ -242,9 +245,23 @@ fun LyricsPage(env: AppEnv) {
                         "Puoi scegliere un'altra fonte o scriverlo tu.",
                         color = cs.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(onClick = { showSources = true }) { Text("Scegli la fonte") }
-                        OutlinedButton(onClick = { showEdit = true }) { Text("Scrivi il testo") }
+                    val ai = LyricsAi.state
+                    if (ai is LyricsAi.State.Working && ai.trackId == t.id) {
+                        Text(
+                            "${ai.stage}${if (ai.percent > 0) " · ${ai.percent}%" else "…"}",
+                            color = cs.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium
+                        )
+                        TextButton(onClick = { showAi = true }) { Text("Dettagli") }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(onClick = { showSources = true }) { Text("Scegli la fonte") }
+                            OutlinedButton(onClick = { showEdit = true }) { Text("Scrivi il testo") }
+                        }
+                        OutlinedButton(onClick = { showAi = true }) {
+                            Icon(Icons.Filled.AutoAwesome, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Genera con AI")
+                        }
                     }
                 }
                 l!!.synced -> SyncedLyrics(env, t!!, l.lines)
@@ -264,9 +281,11 @@ fun LyricsPage(env: AppEnv) {
         onSources = { showOptions = false; showSources = true },
         onOffset = { showOptions = false; showOffset = true },
         onEdit = { showOptions = false; showEdit = true },
+        onAi = { showOptions = false; showAi = true },
     )
     if (t != null && showSources) LyricsSourcesSheet(env, t) { showSources = false }
     if (t != null && showEdit) EditLyricsDialog(env, t) { showEdit = false }
+    if (t != null && showAi) LyricsAiDialog(env, t) { showAi = false }
 }
 
 @Composable
@@ -426,7 +445,7 @@ private fun LyricsTransport(env: AppEnv) {
 @Composable
 private fun LyricsOptionsSheet(
     env: AppEnv, t: Track,
-    onDismiss: () -> Unit, onSources: () -> Unit, onOffset: () -> Unit, onEdit: () -> Unit,
+    onDismiss: () -> Unit, onSources: () -> Unit, onOffset: () -> Unit, onEdit: () -> Unit, onAi: () -> Unit,
 ) {
     val s = env.settings
     val store = env.lyrics
@@ -452,6 +471,7 @@ private fun LyricsOptionsSheet(
                     env.actions?.shareText("${t.title} — ${t.artist}\n\n${l.plainText}", "Testo di ${t.title}")
                 }
                 MLNavRow("Modifica il testo", "Correggi o scrivi il testo a mano", icon = Icons.Filled.EditNote) { onEdit() }
+                MLNavRow("Genera il testo con AI", "Whisper, offline: ascolta il brano e scrive il testo", icon = Icons.Filled.AutoAwesome) { onAi() }
             }
             MLGroup {
                 Column(Modifier.fillMaxWidth().background(cs.surfaceContainer).padding(start = 16.dp, end = 16.dp, top = 12.dp)) {

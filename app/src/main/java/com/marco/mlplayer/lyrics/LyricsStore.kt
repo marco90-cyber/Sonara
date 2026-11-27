@@ -47,6 +47,7 @@ class LyricsStore(private val ctx: Context, private val settings: Settings) {
         const val SRC_FILE = "Nel file"
         const val SRC_LRC = "File .lrc"
         const val SRC_MANUAL = "Scritto a mano"
+        const val SRC_AI = "Generato con AI"
         const val AUTO = "auto"
     }
 
@@ -203,6 +204,17 @@ class LyricsStore(private val ctx: Context, private val settings: Settings) {
         if (st is SourceState.Found) {
             chosen = id
             apply(t, st.lyrics, id)
+        }
+    }
+
+    /** Testo generato con l'AI: si salva come gli altri, e si mostra solo se il brano è ancora quello aperto. */
+    suspend fun saveGenerated(t: Track, l: Lyrics) {
+        if (trackId == t.id) {
+            chosen = SRC_AI
+            apply(t, l, SRC_AI)
+        } else withContext(Dispatchers.IO) {
+            cacheFile(t).writeText(l.toLrc())
+            meta.edit().putString("name_${t.id}", l.source).putString("src_${t.id}", SRC_AI).apply()
         }
     }
 

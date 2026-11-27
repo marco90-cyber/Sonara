@@ -1,0 +1,202 @@
+package com.marco.mlplayer.ai
+
+import android.content.Context
+import android.net.Uri
+import android.os.PowerManager
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
+import com.marco.mlplayer.data.Track
+import com.marco.mlplayer.lyrics.LLine
+import com.marco.mlplayer.lyrics.Lyrics
+import com.marco.mlplayer.ui.AppEnv
+import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.yt.YtDataSource
+import com.marco.mlplayer.yt.YtDownloads
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+
+/**
+ * Genera il testo di un brano che non ce l'ha: ascolta l'audio con Whisper (offline, sul telefono)
+ * e ricava le righe con i tempi. Il lavoro continua anche se chiudi la finestra, finché l'app resta aperta.
+ */
+@UnstableApi
+object LyricsAi {
+    const val SOURCE = "Generato con AI"
+    private const val TAG = "TestoAI"
+
+    enum class Model(val label: String, val file: String, val mb: Int, val note: String) {
+        Base("Base", "ggml-base-q5_1.bin", 60, "più veloce"),
+        Small("Small", "ggml-small-q5_1.bin", 190, "più preciso col canto");
+
+        val url get() = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$file"
+    }
+
+    sealed class State {
+        data object Idle : State()
+        data class Working(val trackId: String, val stage: String, val percent: Int) : State()
+        data class Failed(val trackId: String, val message: String) : State()
+        data class Done(val trackId: String) : State()
+    }
+
+    var state by mutableStateOf<State>(State.Idle)
+        private set
+    private var job: Job? = null
+    @Volatile private var stop = false
+
+    val available: Boolean get() = WhisperJni.isAvailable
+    val busy: Boolean get() = state is State.Working
+
+    fun modelFile(ctx: Context, m: Model) = File(File(ctx.filesDir, "whisper").apply { mkdirs() }, m.file)
+    fun hasModel(ctx: Context, m: Model) = modelFile(ctx, m).let { it.exists() && it.length() > m.mb * 400_000L }
+    fun deleteModel(ctx: Context, m: Model) { modelFile(ctx, m).delete() }
+
+    fun cancel() {
+        stop = true
+        WhisperJni.cancel()
+        job?.cancel()
+        state = State.Idle
+    }
+
+    fun dismiss() { if (state !is State.Working) state = State.Idle }
+
+    fun start(env: AppEnv, t: Track, model: Model) {
+        if (busy) return
+        val app = env.app
+        stop = false
+        state = State.Working(t.id, "Preparo", 0)
+        val pm = app.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "sonara:testo-ai")
+        job = app.appScope.launch(Dispatchers.Default) {
+            runCatching { wl.acquire(30 * 60 * 1000L) }
+            var tmp: File? = null
+            try {
+                if (!WhisperJni.isAvailable) error("Questa funzione richiede un telefono a 64 bit (arm64)")
+                val mf = modelFile(app, model)
+                if (!hasModel(app, model)) {
+                    download(model.url, mf, { state = State.Working(t.id, "Scarico il modello ${model.label}", it) })
+                }
+                // audio del brano: scaricato, file locale o flusso di YouTube
+                state = State.Working(t.id, "Leggo l'audio", 0)
+                val pcm = if (t.uri.startsWith("yt:")) {
+                    val dl = YtDownloads.fileUri(t.uri.removePrefix("yt:"))
+                    if (dl != null) PcmDecoder.decode(app, dl, null, { state = State.Working(t.id, "Leggo l'audio", it) }, { stop })
+                    else {
+                        tmp = File(app.cacheDir, "testo_ai_input.bin")
+                        fetchStream(app, t.uri, tmp) { state = State.Working(t.id, "Scarico l'audio", it) }
+                        PcmDecoder.decode(app, null, tmp, { state = State.Working(t.id, "Leggo l'audio", it) }, { stop })
+                    }
+                } else PcmDecoder.decode(app, Uri.parse(t.uri), null, { state = State.Working(t.id, "Leggo l'audio", it) }, { stop })
+                if (stop) throw CancellationException()
+                if (pcm.size < 16_000) error("Audio troppo corto")
+
+                state = State.Working(t.id, "Ascolto e scrivo il testo", 0)
+                val handle = WhisperJni.init(mf.path)
+                if (handle == 0L) { mf.delete(); error("Modello non caricato: riprova, lo riscarico") }
+                val raw = try {
+                    WhisperJni.transcribe(handle, pcm, "auto", 0) { p -> state = State.Working(t.id, "Ascolto e scrivo il testo", p) }
+                } finally { WhisperJni.free(handle) }
+                if (stop) throw CancellationException()
+
+                val lines = clean(raw)
+                if (lines.isEmpty()) error("Non ho trovato parole cantate")
+                env.lyrics.saveGenerated(t, Lyrics(lines, SOURCE))
+                state = State.Done(t.id)
+            } catch (e: CancellationException) {
+                state = State.Idle
+            } catch (e: Throwable) {
+                AppLog.e(TAG, "Generazione del testo non riuscita", e)
+                state = State.Failed(t.id, e.message ?: "Non riuscito")
+            } finally {
+                tmp?.delete()
+                runCatching { if (wl.isHeld) wl.release() }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- risultato
+
+    private val JUNK = Regex("""^[\[(*♪♫♬\s].*[])*♪♫♬\s]$|^[♪♫♬\s.]*$""")
+
+    /** Righe "inizio<TAB>fine<TAB>testo" → righe del testo, senza le tipiche invenzioni di Whisper. */
+    internal fun clean(raw: String): List<LLine> {
+        val out = ArrayList<LLine>()
+        var repeat = 0
+        for (row in raw.lineSequence()) {
+            val p = row.split('\t', limit = 3)
+            if (p.size < 3) continue
+            val start = p[0].toLongOrNull() ?: continue
+            val end = (p[1].toLongOrNull() ?: start).coerceAtLeast(start)
+            val text = p[2].trim()
+            if (text.isBlank() || JUNK.matches(text)) continue
+            val same = out.isNotEmpty() && out.last().text.equals(text, ignoreCase = true)
+            repeat = if (same) repeat + 1 else 0
+            if (repeat >= 4) continue   // ripetizione infinita: è un'allucinazione, non un ritornello
+            out.add(LLine(start, end, text))
+        }
+        return out
+    }
+
+    // ---------------------------------------------------------------- rete
+
+    private fun download(url: String, dest: File, onPct: (Int) -> Unit) {
+        val part = File(dest.path + ".part")
+        val c = URL(url).openConnection() as HttpURLConnection
+        c.connectTimeout = 15_000
+        c.readTimeout = 30_000
+        c.instanceFollowRedirects = true
+        if (c.responseCode !in 200..299) error("Download del modello non riuscito (${c.responseCode})")
+        val total = c.contentLengthLong
+        var done = 0L
+        var last = -1
+        c.inputStream.use { i ->
+            part.outputStream().use { o ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    if (stop) throw CancellationException()
+                    val n = i.read(buf)
+                    if (n < 0) break
+                    o.write(buf, 0, n)
+                    done += n
+                    if (total > 0) {
+                        val pct = (done * 100 / total).toInt()
+                        if (pct != last) { last = pct; onPct(pct) }
+                    }
+                }
+            }
+        }
+        if (!part.renameTo(dest)) error("Modello non salvato")
+    }
+
+    private fun fetchStream(app: Context, uri: String, dest: File, onPct: (Int) -> Unit) {
+        val ds = YtDataSource.factory(app, 0).createDataSource()
+        try {
+            val len = ds.open(DataSpec(Uri.parse(uri)))
+            var done = 0L
+            var last = -1
+            dest.outputStream().use { o ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    if (stop) throw CancellationException()
+                    val n = ds.read(buf, 0, buf.size)
+                    if (n < 0) break
+                    o.write(buf, 0, n)
+                    done += n
+                    if (len > 0) {
+                        val pct = (done * 100 / len).toInt()
+                        if (pct != last) { last = pct; onPct(pct) }
+                    }
+                }
+            }
+        } finally {
+            runCatching { ds.close() }
+        }
+    }
+}

@@ -315,6 +315,7 @@ fun AppEnv.aboutScreen(): MenuScreen = MenuScreen("Informazioni") {
         info("AutoEQ", "Profili delle cuffie di AutoEQ, Jaakko Pasanen (MIT)"),
         info("MLTheme", "Tema Material You condiviso delle MLapps"),
         info("Testi", "LRCLIB, BetterLyrics (Apple Music, QQ Music), Kugou, Unison, Lyrics.ovh; fonti e formati ripresi da LastWave (GPL-3.0)"),
+        info("Testi con AI", "whisper.cpp (MIT, ggml-org) con i modelli Whisper di OpenAI (MIT)"),
         info("Tag e copertine", "jaudiotagger (LGPL-2.1); copertine da iTunes, Deezer, Cover Art Archive; Coil (Apache 2.0)"),
         info("Da LastWave", "Uscite USB esclusiva, diretta e AAudio, bit-perfect, percorso del segnale (GPL-3.0); driver USB decent-player (MIT)"),
     )

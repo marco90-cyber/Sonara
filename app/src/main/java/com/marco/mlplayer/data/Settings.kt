@@ -138,6 +138,8 @@ class Settings(context: Context) {
     var lyricsRomanize by BoolPref(sp, "lyrics_romanize", false)
     /** Salva i testi trovati anche dentro i file (tag LYRICS). */
     var lyricsSaveToFile by BoolPref(sp, "lyrics_save_file", true)
+    /** Modello Whisper per generare i testi: 0 = Base, 1 = Small. */
+    var whisperModel by IntPref(sp, "whisper_model", 0)
 
     // Tatto
     var hapticScreen by BoolPref(sp, "haptic_screen", true)
