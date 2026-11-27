@@ -210,7 +210,7 @@ object LyricsAi {
      * una richiesta unica e lunga viene interrotta dal server. Ogni blocco si riprova (4 tentativi) dallo stesso punto.
      */
     private fun fetchStream(videoUri: String, dest: File, onPct: (Int) -> Unit) {
-        val res = Yt.resolve(videoUri.removePrefix("yt:"), preferMp4 = true)
+        val res = Yt.resolve(videoUri.removePrefix("yt:"), preferMp4 = true, quality = 2)   // il più leggero: Whisper lavora a 16 kHz mono
         var pos = 0L
         var total = -1L
         val buf = ByteArray(64 * 1024)
