@@ -64,7 +64,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Stato della Home: resta uguale cambiando sezione. */
-private object HomeUi {
+internal object HomeUi {
     var shelves by mutableStateOf<List<YtApi.Shelf>?>(null)
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)

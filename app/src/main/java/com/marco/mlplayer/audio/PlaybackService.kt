@@ -18,7 +18,9 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import com.marco.mlplayer.MLPlayerApp
 import com.marco.mlplayer.MainActivity
+import com.marco.mlplayer.ui.HomeUi
 import com.marco.mlplayer.util.AppLog
+import com.marco.mlplayer.yt.YtGenerator
 import com.marco.mlplayer.yt.PlaylistImport
 import com.marco.mlplayer.yt.Yt
 import com.marco.mlplayer.yt.YtApi
@@ -31,6 +33,11 @@ import java.util.concurrent.Executors
  * libreria sfogliabile per Android Auto (preferiti, salvati, scaricati, cronologia, ricerca).
  */
 class PlaybackService : MediaLibraryService() {
+
+    private companion object {
+        const val ACT_ALL = "act:all"
+        const val ACT_SHUFFLE = "act:shuf"
+    }
 
     private var session: MediaLibrarySession? = null
     private val io = Executors.newCachedThreadPool()
@@ -99,6 +106,23 @@ class PlaybackService : MediaLibraryService() {
             ).build()
     }
 
+    /** Voce che suona subito tutta la lista appena aperta: «Riproduci tutto» o «Mescola». */
+    private fun action(id: String, title: String, count: Int): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(id)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title).setSubtitle("$count brani")
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
+                    .setIsBrowsable(false).setIsPlayable(true)
+                    .build()
+            ).build()
+
+    /** I brani di una lista, con «Riproduci tutto» e «Mescola» in cima. */
+    private fun withActions(list: List<Yt.Item>): List<MediaItem> =
+        if (list.size < 2) list.map { playable(it) }
+        else listOf(action(ACT_ALL, "Riproduci tutto", list.size), action(ACT_SHUFFLE, "Mescola", list.size)) + list.map { playable(it) }
+
     private fun folder(id: String, title: String, subtitle: String = "", thumb: String = ""): MediaItem =
         MediaItem.Builder()
             .setMediaId(id)
@@ -135,6 +159,15 @@ class PlaybackService : MediaLibraryService() {
     private fun page(list: List<MediaItem>, page: Int, size: Int): List<MediaItem> =
         if (size <= 0 || size == Int.MAX_VALUE) list else list.drop(page * size).take(size)
 
+    /** Mix della Home (se la Home li ha già preparati) e lo "Scopri settimanale". */
+    private fun mixLists(): List<com.marco.mlplayer.ui.ForYouMix> = HomeUi.mixes + listOfNotNull(HomeUi.weekly)
+
+    private fun mixFolders(): List<MediaItem> {
+        val l = mixLists()
+        return if (l.isEmpty()) listOf(folder("g:mymix", "Il mio mix", "I tuoi gusti mescolati"), folder("g:sugg", "I miei consigli", "Scoperte dalle radio dei tuoi brani"))
+        else l.mapIndexed { i, m -> folder("mx:$i", m.title, m.subtitle) }
+    }
+
     private fun <T> later(block: () -> T): ListenableFuture<T> {
         val f = SettableFuture.create<T>()
         io.execute { try { f.set(block()) } catch (e: Throwable) { f.setException(e) } }
@@ -165,13 +198,14 @@ class PlaybackService : MediaLibraryService() {
             val store = app.ytStore
             fun tracks(list: List<Yt.Item>): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
                 lastBrowsed = list
-                return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(page(list.map { playable(it) }, page, pageSize)), params))
+                return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(page(withActions(list), page, pageSize)), params))
             }
             return when {
                 parentId == "root" -> Futures.immediateFuture(
                     LibraryResult.ofItemList(
                         ImmutableList.of(
-                            folder("fav", "Preferiti"), folder("saved", "Salvati"),
+                            folder("fav", "Preferiti"), folder("pl", "Le tue playlist"), folder("mix", "Mix per te"),
+                            folder("gen", "Generator"), folder("saved", "Salvati"),
                             folder("dl", "Scaricati"), folder("hist", "Cronologia"),
                         ).let { base ->
                             if (app.ytImports.all.isEmpty()) base
@@ -206,8 +240,43 @@ class PlaybackService : MediaLibraryService() {
                         }.onFailure { AppLog.e("Auto", "Apertura di $id non riuscita", it) }.getOrDefault(emptyList())
                         children[id] = list
                         lastBrowsed = list
-                        LibraryResult.ofItemList(ImmutableList.copyOf(page(list.map { playable(it) }, page, pageSize)), params)
+                        LibraryResult.ofItemList(ImmutableList.copyOf(page(withActions(list), page, pageSize)), params)
                     }
+                }
+                parentId == "pl" -> Futures.immediateFuture(
+                    LibraryResult.ofItemList(
+                        ImmutableList.copyOf(page(store.myPlaylists.map { folder("mp:${it.id}", it.name, "${it.items.size} brani", it.items.firstOrNull()?.cover.orEmpty()) }, page, pageSize)),
+                        params,
+                    )
+                )
+                parentId.startsWith("mp:") -> tracks(store.myPlaylists.firstOrNull { it.id == parentId.removePrefix("mp:") }?.items.orEmpty())
+                parentId == "mix" -> Futures.immediateFuture(
+                    LibraryResult.ofItemList(ImmutableList.copyOf(page(mixFolders(), page, pageSize)), params)
+                )
+                parentId.startsWith("mx:") -> tracks(mixLists().getOrNull(parentId.removePrefix("mx:").toIntOrNull() ?: -1)?.tracks.orEmpty())
+                parentId == "gen" -> Futures.immediateFuture(
+                    LibraryResult.ofItemList(
+                        ImmutableList.of(
+                            folder("g:top", "Brani top", "I più ascoltati"), folder("g:recent", "Brani recenti", "Quello che hai ascoltato da poco"),
+                            folder("g:never", "Mai sentiti", "Scoperte nuove"), folder("g:mymix", "Il mio mix", "I tuoi gusti mescolati"),
+                            folder("g:sugg", "I miei consigli", "Scoperte dalle radio dei tuoi brani"),
+                        ), params,
+                    )
+                )
+                parentId.startsWith("g:") -> later {
+                    // si genera a ogni apertura: la lista cambia e non resta vecchia
+                    val mode = when (parentId.removePrefix("g:")) {
+                        "top" -> YtGenerator.Mode.Top; "recent" -> YtGenerator.Mode.Recent; "never" -> YtGenerator.Mode.NeverHeard
+                        "sugg" -> YtGenerator.Mode.Suggestions; else -> YtGenerator.Mode.MyMix
+                    }
+                    val list = runCatching {
+                        YtGenerator.generate(mode, YtGenerator.Input(
+                            plays = store.plays, history = store.history, favorites = store.favorites, skips = store.skips, dislikes = store.dislikes,
+                            count = if (mode == YtGenerator.Mode.Suggestions) 35 else 30,
+                        ))
+                    }.onFailure { AppLog.e("Auto", "Generator $mode non riuscito", it) }.getOrDefault(emptyList())
+                    lastBrowsed = list
+                    LibraryResult.ofItemList(ImmutableList.copyOf(page(withActions(list), page, pageSize)), params)
                 }
                 else -> Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(), params))
             }
@@ -260,8 +329,12 @@ class PlaybackService : MediaLibraryService() {
                 try {
                     var start = 0
                     val items: List<Yt.Item>
+                    val act = mediaItems.singleOrNull()?.mediaId
                     if (!query.isNullOrBlank()) {
                         items = Yt.search(query, 1)
+                    } else if (act == ACT_ALL || act == ACT_SHUFFLE) {
+                        // «Riproduci tutto» / «Mescola»: la lista aperta per ultima
+                        items = if (act == ACT_SHUFFLE) lastBrowsed.shuffled() else lastBrowsed
                     } else {
                         val ids = mediaItems.map { it.mediaId.removePrefix("yt_") }
                         val inList = ids.singleOrNull()?.let { id -> lastBrowsed.indexOfFirst { it.videoId == id } } ?: -1
